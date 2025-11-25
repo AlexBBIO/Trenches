@@ -1154,10 +1154,29 @@ class Unit {
     updateCharging(dt) {
         const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
         
-        // First priority: find enemy trench to assault
+        // Find enemy buildings to destroy (prioritize HQ, then artillery, then MGs)
+        const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
+            b.team === enemyTeam && !b.destroyed && !b.isBlueprint
+        );
+        
+        // Find nearest priority building (HQ > artillery > machinegun)
+        let targetBuilding = null;
+        let targetBuildingDist = Infinity;
+        for (const b of enemyBuildings) {
+            const dist = this.distanceTo(b.x, b.y);
+            // Priority scoring: HQ gets huge priority, then artillery, then MG
+            const priorityBonus = b.type === 'hq' ? -10000 : (b.type === 'artillery' ? -5000 : 0);
+            const score = dist + priorityBonus;
+            if (score < targetBuildingDist) {
+                targetBuildingDist = score;
+                targetBuilding = b;
+            }
+        }
+        
+        // Find enemy trench
         const enemyTrench = this.game.trenchSystem.findNearestTrench(this.x, this.y, enemyTeam);
         
-        // Second priority: find enemies
+        // Find enemies
         const enemies = this.game.unitManager.getEnemiesInRange(this.x, this.y, 500, this.team);
         
         // Check for very close enemies - melee combat!
@@ -1176,7 +1195,7 @@ class Unit {
         }
         
         if (closeEnemies.length > 0) {
-            // Melee attack!
+            // Melee attack close enemies first!
             const target = closeEnemies[0];
             if (this.attackCooldown <= 0) {
                 this.meleeAttack(target);
@@ -1185,6 +1204,31 @@ class Unit {
             // Stay close to fight
             this.targetX = target.x;
             this.targetY = target.y;
+        } else if (targetBuilding) {
+            // PRIORITY: Charge toward enemy buildings to destroy them!
+            const distToBuilding = this.distanceTo(targetBuilding.x, targetBuilding.y);
+            this.targetX = targetBuilding.x;
+            this.targetY = targetBuilding.y;
+            
+            // If close enough, melee attack the building
+            if (distToBuilding < 30 && this.attackCooldown <= 0) {
+                this.game.buildingManager.takeDamage(targetBuilding, 15);
+                this.attackCooldown = 0.8;
+                // Visual feedback
+                this.game.addEffect('dirt', targetBuilding.x, targetBuilding.y, {
+                    size: 10,
+                    duration: 0.3
+                });
+            }
+            
+            // Fire at enemies while advancing
+            if (enemies.length > 0 && this.attackCooldown <= 0) {
+                const nearest = this.findNearest(enemies);
+                if (nearest && this.distanceTo(nearest.x, nearest.y) < this.attackRange) {
+                    this.fire(nearest);
+                    this.attackCooldown = 1 / this.attackRate;
+                }
+            }
         } else if (enemyTrench && this.distanceTo(enemyTrench.x, enemyTrench.y) > 30) {
             // Charge toward enemy trench
             this.targetX = enemyTrench.x;
