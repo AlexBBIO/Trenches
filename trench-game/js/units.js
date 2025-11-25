@@ -587,7 +587,7 @@ class Unit {
         }
     }
     
-    // Find shell hauling task - artillery that needs ammo (respects claims)
+    // Find shell hauling task - artillery or mortar that needs ammo (respects claims)
     findShellHaulingTask() {
         // Check if there are shells to haul
         if (this.game.resources.shells <= 0) return null;
@@ -600,6 +600,16 @@ class Unit {
         
         if (artillery) {
             return { artillery };
+        }
+        
+        // Also check mortars - they need ammo too!
+        const mortar = this.game.buildingManager.findMortarNeedingResupply(
+            this.team,
+            this.id
+        );
+        
+        if (mortar) {
+            return { artillery: mortar }; // Use 'artillery' key for compatibility with hauling logic
         }
         
         return null;
