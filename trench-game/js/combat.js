@@ -67,7 +67,7 @@ export class CombatSystem {
             target.takeDamage(amount, source);
         } else if (target.health !== undefined && !target.destroyed) {
             // Building
-            this.game.buildingManager.damageBuilding(target, amount);
+            this.game.buildingManager.takeDamage(target, amount);
         }
     }
     
@@ -93,7 +93,7 @@ export class CombatSystem {
             const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
             if (dist < radius) {
                 const falloff = 1 - (dist / radius);
-                this.game.buildingManager.damageBuilding(building, damage * falloff * 0.5);
+                this.game.buildingManager.takeDamage(building, damage * falloff * 0.5);
             }
         }
         

@@ -501,6 +501,115 @@ export class TrenchSystem {
         return bestPos;
     }
     
+    // Damage trenches at a point (from explosions)
+    damageTrenchesAtPoint(x, y, radius, damage) {
+        for (const trench of this.trenches) {
+            if (trench.isBlueprint) continue;
+            
+            for (const segment of trench.segments) {
+                if (!segment.built || segment.destroyed) continue;
+                
+                // Check distance to segment midpoint
+                const midX = (segment.start.x + segment.end.x) / 2;
+                const midY = (segment.start.y + segment.end.y) / 2;
+                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
+                
+                if (dist < radius) {
+                    const falloff = 1 - (dist / radius);
+                    const actualDamage = damage * falloff;
+                    
+                    // Initialize health if not set
+                    if (segment.health === undefined) {
+                        segment.health = 100;
+                        segment.maxHealth = 100;
+                    }
+                    
+                    segment.health -= actualDamage;
+                    
+                    if (segment.health <= 0) {
+                        segment.destroyed = true;
+                        segment.damaged = false;
+                        segment.health = 0;
+                    } else if (segment.health < segment.maxHealth * 0.7) {
+                        segment.damaged = true;
+                    }
+                }
+            }
+        }
+    }
+    
+    // Find damaged trench segments for repair
+    findDamagedTrench(x, y, team) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const trench of this.trenches) {
+            if (trench.team !== team || trench.isBlueprint) continue;
+            
+            for (let i = 0; i < trench.segments.length; i++) {
+                const seg = trench.segments[i];
+                if (!seg.damaged && !seg.destroyed) continue;
+                
+                const midX = (seg.start.x + seg.end.x) / 2;
+                const midY = (seg.start.y + seg.end.y) / 2;
+                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = {
+                        type: seg.destroyed ? 'trench_rebuild' : 'trench',
+                        target: trench,
+                        segmentIndex: i,
+                        x: midX,
+                        y: midY
+                    };
+                }
+            }
+        }
+        
+        return nearest;
+    }
+    
+    // Repair a damaged trench segment
+    repairTrenchSegment(trench, segmentIndex, amount) {
+        if (segmentIndex >= trench.segments.length) return true;
+        
+        const segment = trench.segments[segmentIndex];
+        
+        // Initialize health if not set
+        if (segment.maxHealth === undefined) {
+            segment.maxHealth = 100;
+        }
+        if (segment.health === undefined) {
+            segment.health = segment.maxHealth;
+        }
+        
+        if (segment.destroyed) {
+            // Rebuilding destroyed segment
+            segment.rebuildProgress = (segment.rebuildProgress || 0) + amount / segment.length;
+            if (segment.rebuildProgress >= 1) {
+                segment.destroyed = false;
+                segment.damaged = false;
+                segment.built = true;
+                segment.health = segment.maxHealth;
+                segment.rebuildProgress = 0;
+                return true;
+            }
+        } else if (segment.damaged) {
+            // Repairing damaged segment - restore health
+            segment.health = Math.min(segment.maxHealth, segment.health + amount);
+            if (segment.health >= segment.maxHealth * 0.7) {
+                segment.damaged = false;
+                segment.health = segment.maxHealth;
+                return true;
+            }
+        } else {
+            return true; // Already repaired
+        }
+        
+        return false;
+    }
+    
     render(ctx) {
         // Sort trenches so we render blueprints last (on top)
         const sortedTrenches = [...this.trenches].sort((a, b) => {

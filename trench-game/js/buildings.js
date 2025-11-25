@@ -353,6 +353,39 @@ export class BuildingManager {
         return true;
     }
     
+    // Find damaged structures for repair
+    findDamagedStructure(x, y, team) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const building of this.buildings) {
+            if (building.team !== team || building.destroyed || building.isBlueprint) continue;
+            if (building.health >= building.maxHealth) continue;
+            
+            const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = {
+                    type: 'building',
+                    target: building,
+                    x: building.x,
+                    y: building.y
+                };
+            }
+        }
+        
+        return nearest;
+    }
+    
+    // Repair a damaged building
+    repairBuilding(building, amount) {
+        if (building.destroyed || building.isBlueprint) return true;
+        
+        building.health = Math.min(building.maxHealth, building.health + amount);
+        
+        return building.health >= building.maxHealth;
+    }
+    
     update(dt) {
         // Update buildings
         for (const building of this.buildings) {
