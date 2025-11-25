@@ -53,6 +53,28 @@ export class TrainSystem {
         this.cargoRatio = Math.max(0, Math.min(100, ratio));
     }
     
+    // Resupply enemy artillery directly from trains
+    resupplyEnemyArtillery(shellCount) {
+        const enemyArtillery = this.game.buildingManager.buildings.filter(b =>
+            b.team === CONFIG.TEAM_ENEMY &&
+            b.type === 'artillery' &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.ammoCount < b.maxAmmo
+        ).sort((a, b) => a.ammoCount - b.ammoCount);
+        
+        let remainingShells = shellCount;
+        
+        for (const art of enemyArtillery) {
+            if (remainingShells <= 0) break;
+            
+            const needed = art.maxAmmo - art.ammoCount;
+            const toAdd = Math.min(needed, remainingShells);
+            art.ammoCount += toAdd;
+            remainingShells -= toAdd;
+        }
+    }
+    
     start() {
         // Schedule first trains
         this.playerTrainTimer = this.playerInterval / 2; // First train halfway
@@ -200,7 +222,7 @@ export class TrainSystem {
             this.game.unitManager.spawnUnit('worker', x, y, train.team);
         }
         
-        // Deliver shells to storage (at HQ)
+        // Deliver shells to storage
         if (train.shells > 0) {
             if (isPlayer) {
                 // Player shells go to resource stockpile
@@ -214,9 +236,10 @@ export class TrainSystem {
                     size: 15,
                     duration: 0.3
                 });
+            } else {
+                // Enemy shells directly resupply their artillery
+                this.resupplyEnemyArtillery(train.shells);
             }
-            // Enemy shells automatically resupply their artillery
-            // (handled separately in AI)
         }
         
         // Update manpower for player

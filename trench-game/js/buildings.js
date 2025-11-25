@@ -78,8 +78,9 @@ export class BuildingManager {
                 building.fireRate = 0.15;
                 building.buildTime = 100;
                 building.needsManning = true;
-                building.ammoCount = 0;     // Artillery starts empty, needs shells
                 building.maxAmmo = 10;      // Max shells artillery can hold
+                // Enemy artillery starts with ammo, player needs to supply
+                building.ammoCount = (team === CONFIG.TEAM_ENEMY) ? 5 : 0;
                 break;
         }
         

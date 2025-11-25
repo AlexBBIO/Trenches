@@ -369,6 +369,13 @@ class Unit {
                 // Stay at building position
                 this.x = this.mannedBuilding.x;
                 this.y = this.mannedBuilding.y;
+            } else {
+                // Not manning anything - check for unmanned emplacements to man
+                const unmanned = this.game.buildingManager.getUnmannedEmplacement(this.team);
+                if (unmanned) {
+                    this.assignToEmplacement(unmanned);
+                    return;
+                }
             }
             
             const enemies = this.game.unitManager.getEnemiesInRange(
