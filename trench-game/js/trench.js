@@ -1163,6 +1163,8 @@ export class TrenchSystem {
         // Floor layer
         ctx.strokeStyle = CONFIG.COLORS.TRENCH;
         ctx.lineWidth = width - 12;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(end.x, end.y);

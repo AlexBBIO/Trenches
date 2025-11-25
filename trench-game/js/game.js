@@ -273,9 +273,58 @@ class Game {
             effect.time += dt;
             
             if (effect.time >= effect.duration) {
+                // Handle grenade explosion when grenade effect completes
+                if (effect.type === 'grenade') {
+                    this.grenadeExplosion(effect);
+                }
+                
                 this.effects.splice(i, 1);
             }
         }
+    }
+    
+    // Handle grenade explosion - damages buildings and units in area
+    grenadeExplosion(effect) {
+        const x = effect.targetX;
+        const y = effect.targetY;
+        const damage = effect.damage || 100;
+        const splashRadius = effect.splashRadius || 40;
+        
+        // Add explosion visual effect
+        this.addEffect('explosion', x, y, {
+            size: 30,
+            duration: 0.5
+        });
+        
+        // Damage buildings in splash radius (grenades are very effective vs buildings)
+        for (const building of this.buildingManager.buildings) {
+            if (building.destroyed || building.isBlueprint) continue;
+            if (building.type === 'hq') continue; // HQ is too big for grenades
+            
+            const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
+            if (dist < splashRadius + building.radius) {
+                // Grenades deal full damage to buildings (they're meant for this!)
+                const falloff = Math.max(0.5, 1 - (dist / (splashRadius + building.radius)));
+                this.buildingManager.takeDamage(building, damage * falloff);
+            }
+        }
+        
+        // Damage units in splash radius (less damage than to buildings)
+        const allUnits = this.unitManager.units;
+        for (const unit of allUnits) {
+            if (unit.state === 'dead') continue;
+            
+            const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
+            if (dist < splashRadius) {
+                const falloff = 1 - (dist / splashRadius);
+                // Grenades deal 50% damage to units compared to buildings
+                this.combatSystem.dealDamage(unit, damage * falloff * 0.5, effect.source);
+                unit.suppression = 100; // Full suppression
+            }
+        }
+        
+        // Damage trenches (minor)
+        this.trenchSystem.damageTrenchesAtPoint(x, y, splashRadius, damage * 0.2);
     }
     
     addEffect(type, x, y, options = {}) {

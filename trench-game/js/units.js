@@ -190,6 +190,13 @@ class Unit {
             this.attackRange = CONFIG.RIFLE_RANGE;
             this.attackDamage = 25;
             this.attackRate = 1.5;
+            // Grenade stats
+            this.grenadeCount = 2;         // Each soldier carries 2 grenades
+            this.maxGrenades = 2;
+            this.grenadeCooldown = 0;      // Time until can throw again
+            this.grenadeRange = 80;        // Must be this close to throw at target
+            this.grenadeDamage = 100;      // High damage to buildings/emplacements
+            this.grenadeSplashRadius = 40; // Splash damage radius
         } else if (this.type === 'worker') {
             this.maxHealth = 60;
             this.health = 60;
@@ -278,6 +285,11 @@ class Unit {
         // Update cooldowns
         if (this.attackCooldown > 0) {
             this.attackCooldown -= dt;
+        }
+        
+        // Update grenade cooldown
+        if (this.grenadeCooldown > 0) {
+            this.grenadeCooldown -= dt;
         }
         
         // Reduce suppression over time
@@ -808,8 +820,15 @@ class Unit {
         if (this.task.type === 'build_trench') {
             const trench = this.task.trench;
             const segIdx = this.task.segmentIndex;
+            const segment = trench.segments[segIdx];
             
             const completed = this.game.trenchSystem.buildSegment(trench, segIdx, this.buildSpeed * dt);
+            
+            // Move worker along the trench line as they build
+            if (segment && !completed) {
+                this.x = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
+                this.y = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
+            }
             
             if (completed) {
                 // Unclaim the completed segment
@@ -855,6 +874,7 @@ class Unit {
         } else if (this.task.type === 'build_wire') {
             const wire = this.task.wire;
             const segIdx = this.task.segmentIndex;
+            const segment = wire.segments[segIdx];
             
             if (wire.destroyed) {
                 this.clearTask();
@@ -863,6 +883,12 @@ class Unit {
             }
             
             const completed = this.game.buildingManager.buildWireSegment(wire, segIdx, this.buildSpeed * dt);
+            
+            // Move worker along the wire line as they build
+            if (segment && !completed) {
+                this.x = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
+                this.y = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
+            }
             
             if (completed) {
                 // Unclaim the completed segment
@@ -1060,6 +1086,14 @@ class Unit {
     updateFighting(dt) {
         const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
         
+        // TRY TO THROW GRENADES at enemy buildings/emplacements when in range!
+        if (this.grenadeCount > 0 && this.grenadeCooldown <= 0) {
+            const grenadeTarget = this.findGrenadeTarget(enemyTeam);
+            if (grenadeTarget) {
+                this.throwGrenade(grenadeTarget);
+            }
+        }
+        
         // Look for enemies
         const enemies = this.game.unitManager.getEnemiesInRange(this.x, this.y, this.attackRange, this.team);
         
@@ -1133,6 +1167,14 @@ class Unit {
             return dist < meleeRange;
         });
         
+        // TRY TO THROW GRENADES at enemy buildings/emplacements when in range!
+        if (this.grenadeCount > 0 && this.grenadeCooldown <= 0) {
+            const grenadeTarget = this.findGrenadeTarget(enemyTeam);
+            if (grenadeTarget) {
+                this.throwGrenade(grenadeTarget);
+            }
+        }
+        
         if (closeEnemies.length > 0) {
             // Melee attack!
             const target = closeEnemies[0];
@@ -1182,6 +1224,81 @@ class Unit {
             this.setState(UnitState.FIGHTING);
             this.inTrench = true;
         }
+    }
+    
+    // Find enemy building/emplacement to throw grenade at
+    findGrenadeTarget(enemyTeam) {
+        // Look for enemy buildings (MGs, artillery) within grenade range
+        const buildings = this.game.buildingManager.buildings.filter(b => 
+            b.team === enemyTeam && 
+            !b.destroyed && 
+            !b.isBlueprint &&
+            (b.type === 'machinegun' || b.type === 'artillery')
+        );
+        
+        let nearestBuilding = null;
+        let nearestDist = Infinity;
+        
+        for (const building of buildings) {
+            const dist = this.distanceTo(building.x, building.y);
+            if (dist < this.grenadeRange && dist < nearestDist) {
+                nearestDist = dist;
+                nearestBuilding = building;
+            }
+        }
+        
+        // If no buildings in range, try to grenade clustered enemies
+        if (!nearestBuilding) {
+            // Find enemies close together (good grenade target)
+            const nearbyEnemies = this.game.unitManager.getEnemiesInRange(
+                this.x, this.y, this.grenadeRange, this.team
+            );
+            
+            // Only grenade if there are multiple enemies grouped together
+            if (nearbyEnemies.length >= 2) {
+                // Find the cluster center
+                let clusterX = 0, clusterY = 0;
+                for (const enemy of nearbyEnemies) {
+                    clusterX += enemy.x;
+                    clusterY += enemy.y;
+                }
+                clusterX /= nearbyEnemies.length;
+                clusterY /= nearbyEnemies.length;
+                
+                return { x: clusterX, y: clusterY, type: 'cluster' };
+            }
+        }
+        
+        return nearestBuilding;
+    }
+    
+    // Throw a grenade at the target
+    throwGrenade(target) {
+        this.grenadeCount--;
+        this.grenadeCooldown = 2.5; // 2.5 second cooldown between throws
+        
+        // Face the target
+        this.facing = target.x > this.x ? 1 : -1;
+        
+        // Create the flying grenade effect
+        const flightTime = 0.6; // seconds for grenade to reach target
+        
+        // Add grenade throw animation/effect
+        this.game.addEffect('grenade', this.x, this.y, {
+            targetX: target.x,
+            targetY: target.y,
+            duration: flightTime,
+            damage: this.grenadeDamage,
+            splashRadius: this.grenadeSplashRadius,
+            source: this
+        });
+        
+        // Show soldier's throwing animation (brief arm motion via muzzle effect)
+        this.game.addEffect('muzzle', 
+            this.x + this.facing * 8,
+            this.y - 5,
+            { size: 4, duration: 0.1 }
+        );
     }
     
     meleeAttack(target) {

@@ -730,7 +730,73 @@ export class Renderer {
                 case 'smoke':
                     this.renderSmoke(ctx, effect, progress);
                     break;
+                case 'grenade':
+                    this.renderGrenade(ctx, effect, progress);
+                    break;
             }
+        }
+    }
+    
+    renderGrenade(ctx, effect, progress) {
+        // Calculate grenade position (arc trajectory)
+        const startX = effect.x;
+        const startY = effect.y;
+        const endX = effect.targetX;
+        const endY = effect.targetY;
+        
+        // Linear interpolation for X/Y
+        const currentX = startX + (endX - startX) * progress;
+        const currentY = startY + (endY - startY) * progress;
+        
+        // Arc height (parabola) - peaks at 50% progress
+        const arcHeight = 40; // Maximum height of arc
+        const arcProgress = 4 * progress * (1 - progress); // Parabola: 0 at start/end, 1 at middle
+        const currentArcY = currentY - arcHeight * arcProgress;
+        
+        ctx.save();
+        
+        // Grenade shadow on ground
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.ellipse(currentX, currentY + 2, 4, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.globalAlpha = 1;
+        
+        // Spinning grenade body
+        const spin = progress * Math.PI * 6; // Spin during flight
+        ctx.translate(currentX, currentArcY);
+        ctx.rotate(spin);
+        
+        // Grenade body (stick grenade / potato masher style for WWI feel)
+        // Handle
+        ctx.fillStyle = '#4a3a20';
+        ctx.fillRect(-2, -8, 4, 12);
+        
+        // Head (explosive part)
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(-4, -12, 8, 6);
+        
+        // Metal band
+        ctx.fillStyle = '#5a5a5a';
+        ctx.fillRect(-4, -8, 8, 2);
+        
+        ctx.restore();
+        
+        // Trail effect (small sparks)
+        if (progress > 0.1 && progress < 0.9) {
+            ctx.fillStyle = CONFIG.COLORS.MUZZLE_FLASH;
+            ctx.globalAlpha = 0.6;
+            for (let i = 0; i < 3; i++) {
+                const trailProgress = Math.max(0, progress - i * 0.03);
+                const trailX = startX + (endX - startX) * trailProgress;
+                const trailY = startY + (endY - startY) * trailProgress;
+                const trailArc = 4 * trailProgress * (1 - trailProgress);
+                const trailArcY = trailY - arcHeight * trailArc;
+                ctx.fillRect(trailX - 1, trailArcY - 1, 2, 2);
+            }
+            ctx.globalAlpha = 1;
         }
     }
     
