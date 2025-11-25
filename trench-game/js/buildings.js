@@ -479,7 +479,7 @@ export class BuildingManager {
         
         // Check enemy trenches
         for (const trench of this.game.trenchSystem.trenches) {
-            if (trench.team !== enemyTeam || trench.isBlueprint) continue;
+            if (trench.team !== enemyTeam || trench.isBlueprint || trench.destroyed) continue;
             
             // Target the center of the trench
             const centerIdx = Math.floor(trench.points.length / 2);
