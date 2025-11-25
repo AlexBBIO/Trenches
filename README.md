@@ -45,6 +45,18 @@ A WW1 trench warfare strategy game built with HTML5 Canvas and vanilla JavaScrip
 - Charging troops will seek out enemy trenches
 - Close combat deals high damage
 
+## Shelved Features
+
+### Morale System (commented out)
+A morale system was partially implemented but is currently disabled. The original design had:
+- Morale starts at 100 for each unit
+- Seeing allies die nearby would reduce morale (-10 per death)
+- Being suppressed would reduce morale (-5)
+- Being in a trench would boost morale (+2 over time)
+- At 0 morale, soldiers would automatically retreat
+
+**Why shelved:** Soldiers die too quickly in combat for morale to meaningfully impact gameplay. The system needs a redesign to be impactful. Code is preserved in comments in `combat.js`, `units.js`, and `ai.js`.
+
 ## Tech Stack
 
 - HTML5 Canvas

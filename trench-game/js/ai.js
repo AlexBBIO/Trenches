@@ -417,7 +417,8 @@ export class AIController {
             // Retreating units recover
             if (unit.state === UnitState.RETREATING) {
                 if (unit.x > CONFIG.MAP_WIDTH - 200) {
-                    unit.morale = Math.min(100, unit.morale + 30);
+                    // MORALE SYSTEM - SHELVED FOR NOW (see README)
+                    // unit.morale = Math.min(100, unit.morale + 30);
                     unit.setState(UnitState.IDLE);
                 }
             }

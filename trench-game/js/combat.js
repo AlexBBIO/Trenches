@@ -101,7 +101,10 @@ export class CombatSystem {
         this.game.trenchSystem.damageTrenchesAtPoint(x, y, radius, damage * 0.3);
     }
     
-    // Calculate morale effects
+    // MORALE SYSTEM - SHELVED FOR NOW (see README)
+    // The morale system was incomplete and soldiers died too fast for morale
+    // to meaningfully impact gameplay. Commented out for future redesign.
+    /*
     applyMoraleEffects(unit, nearbyDeaths) {
         // Seeing allies die reduces morale
         unit.morale -= nearbyDeaths * 10;
@@ -139,6 +142,7 @@ export class CombatSystem {
             unit.moveTo(baseX, unit.y);
         }
     }
+    */
     
     // Calculate cover and line of sight
     hasLineOfSight(x1, y1, x2, y2) {

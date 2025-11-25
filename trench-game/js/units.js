@@ -182,8 +182,8 @@ class Unit {
         this.animTime = Math.random() * 10; // Offset for variety
         this.deathTime = 0;
         
-        // Morale
-        this.morale = 100;
+        // MORALE SYSTEM - SHELVED FOR NOW (see README)
+        // this.morale = 100;
         this.suppression = 0;
     }
     
@@ -222,7 +222,8 @@ class Unit {
         
         if (state === UnitState.CHARGING) {
             this.speed = 100; // Faster when charging
-            this.morale = Math.min(100, this.morale + 20);
+            // MORALE SYSTEM - SHELVED FOR NOW (see README)
+            // this.morale = Math.min(100, this.morale + 20);
         } else if (state === UnitState.RETREATING) {
             this.speed = 80;
         } else {
