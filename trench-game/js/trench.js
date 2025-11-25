@@ -265,33 +265,6 @@ export class TrenchSystem {
         }
     }
     
-    // Phase 2: Compute polygon outline for a trench segment
-    computeTrenchPolygon(start, end, width) {
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        
-        if (length < 0.1) {
-            return null;
-        }
-        
-        // Perpendicular normal vector
-        const nx = -dy / length;
-        const ny = dx / length;
-        
-        const halfWidth = width / 2;
-        
-        // Four corners of the segment polygon
-        return {
-            leftStart: { x: start.x + nx * halfWidth, y: start.y + ny * halfWidth },
-            rightStart: { x: start.x - nx * halfWidth, y: start.y - ny * halfWidth },
-            leftEnd: { x: end.x + nx * halfWidth, y: end.y + ny * halfWidth },
-            rightEnd: { x: end.x - nx * halfWidth, y: end.y - ny * halfWidth },
-            normal: { x: nx, y: ny },
-            direction: { x: dx / length, y: dy / length }
-        };
-    }
-    
     // Compute miter point where two segments meet at a corner
     computeMiterPoint(p1, p2, p3, width, side) {
         // Direction vectors
@@ -389,16 +362,6 @@ export class TrenchSystem {
         }
         
         return { left: leftPoints, right: rightPoints };
-    }
-    
-    // Create a closed polygon path from left and right outlines
-    createClosedPolygon(leftPoints, rightPoints) {
-        // Polygon goes: left points forward, right points backward
-        const polygon = [...leftPoints];
-        for (let i = rightPoints.length - 1; i >= 0; i--) {
-            polygon.push(rightPoints[i]);
-        }
-        return polygon;
     }
     
     calculateSegments(trench) {
@@ -1031,83 +994,43 @@ export class TrenchSystem {
         // Shadow removed for cleaner appearance
     }
     
-    // LAYER 3: Parapet layer - outer sandbag wall as unified polygon
+    // LAYER 3: Parapet layer - not visible since same width as wall
     renderTrenchParapetLayer(ctx, trench) {
-        if (trench.points.length < 2) return;
-        
-        const width = trench.width - 6; // Same as wall layer (no visible tan border)
-        
-        // Generate outline for entire trench
-        const outline = this.generateTrenchOutline(trench.points, width);
-        
-        if (outline.left.length < 2) return;
-        
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        
-        ctx.moveTo(outline.left[0].x, outline.left[0].y);
-        for (let i = 1; i < outline.left.length; i++) {
-            ctx.lineTo(outline.left[i].x, outline.left[i].y);
-        }
-        
-        for (let i = outline.right.length - 1; i >= 0; i--) {
-            ctx.lineTo(outline.right[i].x, outline.right[i].y);
-        }
-        
-        ctx.closePath();
-        ctx.fill();
+        // Parapet disabled - wall layer handles the outer edge
     }
     
     // LAYER 4: Wall layer - inner earth wall
     renderTrenchWallLayer(ctx, trench) {
         if (trench.points.length < 2) return;
         
-        const width = trench.width - 6;
+        ctx.strokeStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.lineWidth = trench.width - 6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         
-        const outline = this.generateTrenchOutline(trench.points, width);
-        
-        if (outline.left.length < 2) return;
-        
-        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
         ctx.beginPath();
-        
-        ctx.moveTo(outline.left[0].x, outline.left[0].y);
-        for (let i = 1; i < outline.left.length; i++) {
-            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        ctx.moveTo(trench.points[0].x, trench.points[0].y);
+        for (let i = 1; i < trench.points.length; i++) {
+            ctx.lineTo(trench.points[i].x, trench.points[i].y);
         }
-        
-        for (let i = outline.right.length - 1; i >= 0; i--) {
-            ctx.lineTo(outline.right[i].x, outline.right[i].y);
-        }
-        
-        ctx.closePath();
-        ctx.fill();
+        ctx.stroke();
     }
     
     // LAYER 5: Floor layer - dark trench interior
     renderTrenchFloorLayer(ctx, trench) {
         if (trench.points.length < 2) return;
         
-        const width = trench.width - 12;
+        ctx.strokeStyle = CONFIG.COLORS.TRENCH;
+        ctx.lineWidth = trench.width - 12;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         
-        const outline = this.generateTrenchOutline(trench.points, width);
-        
-        if (outline.left.length < 2) return;
-        
-        ctx.fillStyle = CONFIG.COLORS.TRENCH;
         ctx.beginPath();
-        
-        ctx.moveTo(outline.left[0].x, outline.left[0].y);
-        for (let i = 1; i < outline.left.length; i++) {
-            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        ctx.moveTo(trench.points[0].x, trench.points[0].y);
+        for (let i = 1; i < trench.points.length; i++) {
+            ctx.lineTo(trench.points[i].x, trench.points[i].y);
         }
-        
-        for (let i = outline.right.length - 1; i >= 0; i--) {
-            ctx.lineTo(outline.right[i].x, outline.right[i].y);
-        }
-        
-        ctx.closePath();
-        ctx.fill();
+        ctx.stroke();
     }
     
     // LAYER 6: Render junction hubs where multiple trenches meet
@@ -1224,33 +1147,26 @@ export class TrenchSystem {
     
     // Helper method for drawing complete trench segment (used for partial blueprint builds)
     drawTrenchSegmentComplete(ctx, start, end, width) {
-        const dx = end.x - start.x;
-        const dy = end.y - start.y;
-        const length = Math.sqrt(dx * dx + dy * dy);
+        const length = Math.sqrt((end.x - start.x) ** 2 + (end.y - start.y) ** 2);
         if (length < 1) return;
         
-        const nx = -dy / length;
-        const ny = dx / length;
-        
-        // Wall
-        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        // Wall layer
+        ctx.strokeStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.lineWidth = width - 6;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(start.x + nx * (width/2 - 3), start.y + ny * (width/2 - 3));
-        ctx.lineTo(end.x + nx * (width/2 - 3), end.y + ny * (width/2 - 3));
-        ctx.lineTo(end.x - nx * (width/2 - 3), end.y - ny * (width/2 - 3));
-        ctx.lineTo(start.x - nx * (width/2 - 3), start.y - ny * (width/2 - 3));
-        ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
         
-        // Floor
-        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        // Floor layer
+        ctx.strokeStyle = CONFIG.COLORS.TRENCH;
+        ctx.lineWidth = width - 12;
         ctx.beginPath();
-        ctx.moveTo(start.x + nx * (width/2 - 6), start.y + ny * (width/2 - 6));
-        ctx.lineTo(end.x + nx * (width/2 - 6), end.y + ny * (width/2 - 6));
-        ctx.lineTo(end.x - nx * (width/2 - 6), end.y - ny * (width/2 - 6));
-        ctx.lineTo(start.x - nx * (width/2 - 6), start.y - ny * (width/2 - 6));
-        ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
     }
     
     drawSandbagParapet(ctx, start, end, width, length, nx, ny) {
