@@ -239,16 +239,16 @@ export class UI {
         );
         
         // Clear current selection
-        this.game.unitManager.clearSelection();
+        this.game.clearSelection();
         
         // Select all of this type
         units.forEach(unit => {
             unit.selected = true;
-            this.game.unitManager.selectedUnits.push(unit);
+            this.game.selectedUnits.push(unit);
         });
         
         // Update UI
-        this.updateSelection(this.game.unitManager.selectedUnits);
+        this.updateSelection(this.game.selectedUnits);
         
         // Switch to select tool
         this.game.setTool('select');
