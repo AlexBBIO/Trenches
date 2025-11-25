@@ -1672,6 +1672,9 @@ class Unit {
         this.state = UnitState.DEAD;
         this.deathTime = 0;
         
+        // Track the kill in stats
+        this.game.recordKill(this.team);
+        
         // Clean up worker claims
         if (this.type === 'worker') {
             // Return any shells being carried

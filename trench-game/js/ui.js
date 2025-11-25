@@ -43,6 +43,12 @@ export class UI {
         this.selectionInfo = document.getElementById('selection-info');
         this.selectedCount = document.getElementById('selected-count');
         
+        // Stats bar elements
+        this.statWorkersDisplay = document.getElementById('stat-workers');
+        this.statSoldiersDisplay = document.getElementById('stat-soldiers');
+        this.statEnemiesKilledDisplay = document.getElementById('stat-enemies-killed');
+        this.statFriendliesKilledDisplay = document.getElementById('stat-friendlies-killed');
+        
         this.toolbar = document.getElementById('toolbar');
         this.toolButtons = document.querySelectorAll('.tool-btn');
         
@@ -394,6 +400,9 @@ export class UI {
             this.shellsDisplay.textContent = this.game.resources.shells;
         }
         
+        // Update stats bar
+        this.updateStatsBar();
+        
         // Slowly regenerate supplies (with depot bonus)
         const depotBonus = this.game.buildingManager.getSupplyRegenBonus(CONFIG.TEAM_PLAYER);
         const baseRegen = 2;
@@ -686,6 +695,39 @@ export class UI {
                 this.game.buildingManager.takeDamage(building, 0, null);
                 this.deselectBuilding();
                 break;
+        }
+    }
+    
+    // Update the stats bar display
+    updateStatsBar() {
+        const units = this.game.unitManager.units;
+        const playerTeam = CONFIG.TEAM_PLAYER;
+        
+        // Count living player workers and soldiers
+        const workers = units.filter(u => 
+            u.team === playerTeam && 
+            u.type === 'worker' && 
+            u.state !== 'dead'
+        ).length;
+        
+        const soldiers = units.filter(u => 
+            u.team === playerTeam && 
+            u.type === 'soldier' && 
+            u.state !== 'dead'
+        ).length;
+        
+        // Update displays
+        if (this.statWorkersDisplay) {
+            this.statWorkersDisplay.textContent = workers;
+        }
+        if (this.statSoldiersDisplay) {
+            this.statSoldiersDisplay.textContent = soldiers;
+        }
+        if (this.statEnemiesKilledDisplay) {
+            this.statEnemiesKilledDisplay.textContent = this.game.stats.enemiesKilled;
+        }
+        if (this.statFriendliesKilledDisplay) {
+            this.statFriendliesKilledDisplay.textContent = this.game.stats.friendliesKilled;
         }
     }
 }

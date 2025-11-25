@@ -281,6 +281,57 @@ body {
     font-size: 18px;
 }
 
+/* === STATS BAR === */
+#stats-bar {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 3px;
+    background: var(--color-ui-bg);
+    border: 2px solid var(--color-ui-border);
+    padding: 6px 10px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+}
+
+.stat {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4px 12px;
+    border-right: 1px solid var(--color-mud);
+}
+
+.stat:last-child {
+    border-right: none;
+}
+
+.stat-label {
+    font-family: var(--font-military);
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--color-khaki);
+    margin-bottom: 2px;
+}
+
+.stat-value {
+    font-family: var(--font-heading);
+    font-size: 20px;
+    color: var(--color-ui-text-light);
+    line-height: 1;
+}
+
+.stat-enemy .stat-value {
+    color: var(--color-blood-bright);
+}
+
+.stat-friendly .stat-value {
+    color: var(--color-olive-light);
+}
+
 /* === TOOLBAR === */
 #toolbar {
     position: absolute;

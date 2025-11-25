@@ -170,6 +170,12 @@ class Game {
             shells: CONFIG.STARTING_SHELLS
         };
         
+        // Stats tracking
+        this.stats = {
+            enemiesKilled: 0,
+            friendliesKilled: 0
+        };
+        
         // Initialize systems
         this.renderer = new Renderer(this);
         this.input = new Input(this);
@@ -227,6 +233,10 @@ class Game {
         this.resources.manpower = CONFIG.STARTING_MANPOWER;
         this.resources.supplies = CONFIG.STARTING_SUPPLIES;
         this.resources.shells = CONFIG.STARTING_SHELLS;
+        
+        // Reset stats
+        this.stats.enemiesKilled = 0;
+        this.stats.friendliesKilled = 0;
         
         // Clear everything
         this.trenchSystem.clear();
@@ -464,6 +474,15 @@ class Game {
     
     addManpower(amount) {
         this.resources.manpower += amount;
+    }
+    
+    // Stats tracking
+    recordKill(victimTeam) {
+        if (victimTeam === CONFIG.TEAM_ENEMY) {
+            this.stats.enemiesKilled++;
+        } else if (victimTeam === CONFIG.TEAM_PLAYER) {
+            this.stats.friendliesKilled++;
+        }
     }
     
     // Tool management
