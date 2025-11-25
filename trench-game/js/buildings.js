@@ -11,8 +11,6 @@ export class BuildingManager {
         this.claimedWireSegments = new Map(); // "wireId-segIdx" -> workerId
         this.claimedRepairs = new Map(); // buildingId -> workerId (for repair tasks)
         this.claimedArtillery = new Map(); // artilleryId -> workerId (for shell hauling)
-        this.buildingConnections = new Map(); // buildingId -> { trenchPoint, trench }
-        this.connectionRange = 45; // Max range for building-trench connections (must be close)
     }
     
     clear() {
@@ -641,9 +639,6 @@ export class BuildingManager {
             if (wire.destroyed || wire.isBlueprint) continue;
             this.updateBarbedWireEffect(wire);
         }
-        
-        // Update building-trench connections periodically
-        this.updateBuildingConnections();
     }
     
     // Medical Tent logic - heal friendly units that are close
@@ -884,31 +879,6 @@ export class BuildingManager {
         );
     }
     
-    updateBuildingConnections() {
-        for (const building of this.buildings) {
-            if (building.destroyed || building.isBlueprint) continue;
-            if (building.type === 'hq') continue; // HQ doesn't need trench connection
-            
-            // Find nearest trench point
-            const nearestTrench = this.game.trenchSystem.findNearestTrenchPoint(
-                building.x, building.y, building.team
-            );
-            
-            if (nearestTrench && nearestTrench.distance < this.connectionRange) {
-                this.buildingConnections.set(building.id, {
-                    buildingX: building.x,
-                    buildingY: building.y,
-                    trenchX: nearestTrench.x,
-                    trenchY: nearestTrench.y,
-                    distance: nearestTrench.distance,
-                    trench: nearestTrench.trench
-                });
-            } else {
-                this.buildingConnections.delete(building.id);
-            }
-        }
-    }
-    
     updateWeapon(building, dt) {
         const enemies = this.game.unitManager.getEnemiesInRange(
             building.x, building.y, building.range, building.team
@@ -1123,9 +1093,6 @@ export class BuildingManager {
     }
     
     render(ctx, renderer = null) {
-        // Render building-trench connections FIRST (underneath everything)
-        this.renderBuildingConnections(ctx);
-        
         // Render barbed wire lines
         for (const wire of this.barbedWireLines) {
             if (wire.destroyed) continue;
@@ -1215,160 +1182,6 @@ export class BuildingManager {
         ctx.stroke();
         
         ctx.restore();
-    }
-    
-    renderBuildingConnections(ctx) {
-        for (const [buildingId, connection] of this.buildingConnections) {
-            this.renderConnectionPathway(ctx, connection);
-        }
-    }
-    
-    renderConnectionPathway(ctx, connection) {
-        const { buildingX, buildingY, trenchX, trenchY, distance, trench } = connection;
-        
-        // Calculate direction and perpendicular
-        const dx = trenchX - buildingX;
-        const dy = trenchY - buildingY;
-        const length = Math.sqrt(dx * dx + dy * dy);
-        if (length < 10) return;
-        
-        const dirX = dx / length;
-        const dirY = dy / length;
-        const nx = -dirY; // Perpendicular normal
-        const ny = dirX;
-        const pathWidth = 16; // Slightly wider for better blend
-        
-        // Extend the path slightly past the trench connection point
-        // to ensure seamless merging
-        const extendedTrenchX = trenchX + dirX * 4;
-        const extendedTrenchY = trenchY + dirY * 4;
-        
-        ctx.save();
-        
-        // Shadow underneath - tapered at trench end
-        ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.beginPath();
-        ctx.moveTo(buildingX + nx * (pathWidth/2 + 2) + 2, buildingY + ny * (pathWidth/2 + 2) + 2);
-        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 2) + 2, extendedTrenchY + ny * (pathWidth/2 - 2) + 2);
-        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 2) + 2, extendedTrenchY - ny * (pathWidth/2 - 2) + 2);
-        ctx.lineTo(buildingX - nx * (pathWidth/2 + 2) + 2, buildingY - ny * (pathWidth/2 + 2) + 2);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Outer sandbag parapet layer - matches trench parapet color
-        // Tapers towards the trench for smooth merge
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        ctx.moveTo(buildingX + nx * pathWidth/2, buildingY + ny * pathWidth/2);
-        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 4), extendedTrenchY + ny * (pathWidth/2 - 4));
-        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 4), extendedTrenchY - ny * (pathWidth/2 - 4));
-        ctx.lineTo(buildingX - nx * pathWidth/2, buildingY - ny * pathWidth/2);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Inner wall layer - matches trench wall
-        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
-        ctx.beginPath();
-        ctx.moveTo(buildingX + nx * (pathWidth/2 - 3), buildingY + ny * (pathWidth/2 - 3));
-        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 6), extendedTrenchY + ny * (pathWidth/2 - 6));
-        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 6), extendedTrenchY - ny * (pathWidth/2 - 6));
-        ctx.lineTo(buildingX - nx * (pathWidth/2 - 3), buildingY - ny * (pathWidth/2 - 3));
-        ctx.closePath();
-        ctx.fill();
-        
-        // Floor layer - matches trench floor, extends into trench
-        ctx.fillStyle = CONFIG.COLORS.TRENCH;
-        ctx.beginPath();
-        ctx.moveTo(buildingX + nx * (pathWidth/2 - 6), buildingY + ny * (pathWidth/2 - 6));
-        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 8), extendedTrenchY + ny * (pathWidth/2 - 8));
-        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 8), extendedTrenchY - ny * (pathWidth/2 - 8));
-        ctx.lineTo(buildingX - nx * (pathWidth/2 - 6), buildingY - ny * (pathWidth/2 - 6));
-        ctx.closePath();
-        ctx.fill();
-        
-        // Smooth blend circle at trench connection point
-        // This covers any remaining seam
-        const blendRadius = pathWidth / 2 - 2;
-        
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        ctx.arc(trenchX, trenchY, blendRadius + 2, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
-        ctx.beginPath();
-        ctx.arc(trenchX, trenchY, blendRadius - 1, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.fillStyle = CONFIG.COLORS.TRENCH;
-        ctx.beginPath();
-        ctx.arc(trenchX, trenchY, blendRadius - 4, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Duckboards along the path
-        const boardSpacing = 12;
-        const boardCount = Math.floor(length / boardSpacing);
-        
-        for (let i = 1; i < boardCount; i++) {
-            const t = i / boardCount;
-            const px = buildingX + dx * t;
-            const py = buildingY + dy * t;
-            
-            // Board shadow
-            ctx.fillStyle = '#1a1505';
-            ctx.save();
-            ctx.translate(px + 1, py + 1);
-            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
-            ctx.fillRect(-5, -1.5, 10, 3);
-            ctx.restore();
-            
-            // Main board
-            ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
-            ctx.save();
-            ctx.translate(px, py);
-            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
-            ctx.fillRect(-5, -1.5, 10, 3);
-            ctx.restore();
-        }
-        
-        // Small sandbag details at building connection
-        this.drawSmallSandbags(ctx, buildingX, buildingY, nx, ny, pathWidth);
-        
-        // Sandbag details around the trench connection blend point
-        for (let i = 0; i < 4; i++) {
-            const angle = (i / 4) * Math.PI * 2 + Math.atan2(dy, dx);
-            const bx = trenchX + Math.cos(angle) * (blendRadius);
-            const by = trenchY + Math.sin(angle) * (blendRadius);
-            
-            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
-            ctx.beginPath();
-            ctx.ellipse(bx + 1, by + 1, 4, 2.5, angle, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-            ctx.beginPath();
-            ctx.ellipse(bx, by, 4, 2.5, angle, 0, Math.PI * 2);
-            ctx.fill();
-        }
-        
-        ctx.restore();
-    }
-    
-    drawSmallSandbags(ctx, x, y, nx, ny, width) {
-        for (let side = -1; side <= 1; side += 2) {
-            const bx = x + nx * (width/2 + 2) * side;
-            const by = y + ny * (width/2 + 2) * side;
-            
-            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
-            ctx.beginPath();
-            ctx.ellipse(bx + 1, by + 1, 4, 3, 0, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-            ctx.beginPath();
-            ctx.ellipse(bx, by, 4, 3, 0, 0, Math.PI * 2);
-            ctx.fill();
-        }
     }
     
     renderBarbedWireLine(ctx, wire) {

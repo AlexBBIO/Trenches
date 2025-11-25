@@ -161,6 +161,7 @@ class Unit {
         // State
         this.state = UnitState.IDLE;
         this.selected = false;
+        this.visible = true; // Set to false when inside bunkers
         this.target = null;
         this.attackTarget = null;
         this.task = null;
@@ -1669,6 +1670,9 @@ class Unit {
     }
     
     render(ctx) {
+        // Don't render units that are hidden (e.g. inside bunkers)
+        if (!this.visible) return;
+        
         const isEnemy = this.team === CONFIG.TEAM_ENEMY;
         
         // Dead units - Cannon Fodder style bodies stay on ground
