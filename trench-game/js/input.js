@@ -145,6 +145,17 @@ export class Input {
             this.game.setTool('select');
             this.game.clearSelection();
         }
+        
+        // Quick select hotkeys (Shift + S/W)
+        if (e.shiftKey) {
+            if (key === 's') {
+                e.preventDefault();
+                this.game.ui.selectAllOfType('soldier');
+            } else if (key === 'w') {
+                e.preventDefault();
+                this.game.ui.selectAllOfType('worker');
+            }
+        }
     }
     
     onKeyUp(e) {

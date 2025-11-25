@@ -1026,42 +1026,16 @@ export class TrenchSystem {
         }
     }
     
-    // LAYER 2: Shadow layer - unified shadow for entire trench
+    // LAYER 2: Shadow layer - disabled for cleaner look
     renderTrenchShadowLayer(ctx, trench) {
-        if (trench.points.length < 2) return;
-        
-        const width = trench.width;
-        const shadowOffset = 3;
-        const shadowExpand = 3;
-        
-        // Generate outline for entire trench
-        const outline = this.generateTrenchOutline(trench.points, width + shadowExpand * 2);
-        
-        if (outline.left.length < 2) return;
-        
-        ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.beginPath();
-        
-        // Draw left side offset for shadow
-        ctx.moveTo(outline.left[0].x + shadowOffset, outline.left[0].y + shadowOffset);
-        for (let i = 1; i < outline.left.length; i++) {
-            ctx.lineTo(outline.left[i].x + shadowOffset, outline.left[i].y + shadowOffset);
-        }
-        
-        // Draw right side reversed
-        for (let i = outline.right.length - 1; i >= 0; i--) {
-            ctx.lineTo(outline.right[i].x + shadowOffset, outline.right[i].y + shadowOffset);
-        }
-        
-        ctx.closePath();
-        ctx.fill();
+        // Shadow removed for cleaner appearance
     }
     
     // LAYER 3: Parapet layer - outer sandbag wall as unified polygon
     renderTrenchParapetLayer(ctx, trench) {
         if (trench.points.length < 2) return;
         
-        const width = trench.width + 4; // Parapet is slightly wider
+        const width = trench.width - 6; // Same as wall layer (no visible tan border)
         
         // Generate outline for entire trench
         const outline = this.generateTrenchOutline(trench.points, width);
@@ -1145,47 +1119,35 @@ export class TrenchSystem {
     
     renderJunctionHub(ctx, junction) {
         const width = 24; // Default trench width
-        const hubRadius = width / 2 + 2;
-        
-        // Shadow
-        ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.beginPath();
-        ctx.arc(junction.x + 3, junction.y + 3, hubRadius + 3, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Parapet (sandbag) ring
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        ctx.arc(junction.x, junction.y, hubRadius + 2, 0, Math.PI * 2);
-        ctx.fill();
+        const hubRadius = width / 2 - 3; // Narrower hub to match trench
         
         // Wall ring
         ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
         ctx.beginPath();
-        ctx.arc(junction.x, junction.y, hubRadius - 3, 0, Math.PI * 2);
+        ctx.arc(junction.x, junction.y, hubRadius, 0, Math.PI * 2);
         ctx.fill();
         
         // Floor
         ctx.fillStyle = CONFIG.COLORS.TRENCH;
         ctx.beginPath();
-        ctx.arc(junction.x, junction.y, hubRadius - 6, 0, Math.PI * 2);
+        ctx.arc(junction.x, junction.y, hubRadius - 3, 0, Math.PI * 2);
         ctx.fill();
         
-        // Add sandbag details around the hub
+        // Add sandbag details around the hub edge
         const sandbagCount = junction.type === 'crossroad' ? 8 : 6;
         for (let i = 0; i < sandbagCount; i++) {
             const angle = (i / sandbagCount) * Math.PI * 2;
-            const bx = junction.x + Math.cos(angle) * (hubRadius + 1);
-            const by = junction.y + Math.sin(angle) * (hubRadius + 1);
+            const bx = junction.x + Math.cos(angle) * (hubRadius - 1);
+            const by = junction.y + Math.sin(angle) * (hubRadius - 1);
             
             ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
             ctx.beginPath();
-            ctx.ellipse(bx + 1, by + 1, 5, 3, angle, 0, Math.PI * 2);
+            ctx.ellipse(bx + 1, by + 1, 4, 2.5, angle, 0, Math.PI * 2);
             ctx.fill();
             
             ctx.fillStyle = CONFIG.COLORS.SANDBAG;
             ctx.beginPath();
-            ctx.ellipse(bx, by, 5, 3, angle, 0, Math.PI * 2);
+            ctx.ellipse(bx, by, 4, 2.5, angle, 0, Math.PI * 2);
             ctx.fill();
         }
     }
@@ -1272,26 +1234,6 @@ export class TrenchSystem {
         const nx = -dy / length;
         const ny = dx / length;
         
-        // Shadow
-        ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.beginPath();
-        ctx.moveTo(start.x + nx * (width/2 + 3) + 3, start.y + ny * (width/2 + 3) + 3);
-        ctx.lineTo(end.x + nx * (width/2 + 3) + 3, end.y + ny * (width/2 + 3) + 3);
-        ctx.lineTo(end.x - nx * (width/2 + 3) + 3, end.y - ny * (width/2 + 3) + 3);
-        ctx.lineTo(start.x - nx * (width/2 + 3) + 3, start.y - ny * (width/2 + 3) + 3);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Parapet
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        ctx.moveTo(start.x + nx * (width/2 + 2), start.y + ny * (width/2 + 2));
-        ctx.lineTo(end.x + nx * (width/2 + 2), end.y + ny * (width/2 + 2));
-        ctx.lineTo(end.x - nx * (width/2 + 2), end.y - ny * (width/2 + 2));
-        ctx.lineTo(start.x - nx * (width/2 + 2), start.y - ny * (width/2 + 2));
-        ctx.closePath();
-        ctx.fill();
-        
         // Wall
         ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
         ctx.beginPath();
@@ -1321,9 +1263,10 @@ export class TrenchSystem {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         
-        // Draw sandbag details on both sides
-        const bagSpacing = 14; // Slightly wider spacing
+        // Draw sandbag details on both sides, positioned on the wall edge
+        const bagSpacing = 14;
         const bagCount = Math.max(1, Math.floor(length / bagSpacing));
+        const wallHalfWidth = (width - 6) / 2; // Match wall layer width
         
         // Add margin at joints to avoid overlap
         const startMargin = isFirst ? 0.05 : 0.15;
@@ -1336,20 +1279,20 @@ export class TrenchSystem {
             const cx = start.x + dx * t;
             const cy = start.y + dy * t;
             
-            // Outer edge sandbags (both sides)
+            // Sandbags on edge of wall (both sides)
             for (let side = -1; side <= 1; side += 2) {
-                const bx = cx + nx * (width/2 + 1) * side;
-                const by = cy + ny * (width/2 + 1) * side;
+                const bx = cx + nx * (wallHalfWidth - 1) * side;
+                const by = cy + ny * (wallHalfWidth - 1) * side;
                 
                 // Sandbag shape
                 ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
                 ctx.beginPath();
-                ctx.ellipse(bx + 1, by + 1, 5, 3, Math.atan2(dy, dx), 0, Math.PI * 2);
+                ctx.ellipse(bx + 1, by + 1, 4, 2.5, Math.atan2(dy, dx), 0, Math.PI * 2);
                 ctx.fill();
                 
                 ctx.fillStyle = CONFIG.COLORS.SANDBAG;
                 ctx.beginPath();
-                ctx.ellipse(bx, by, 5, 3, Math.atan2(dy, dx), 0, Math.PI * 2);
+                ctx.ellipse(bx, by, 4, 2.5, Math.atan2(dy, dx), 0, Math.PI * 2);
                 ctx.fill();
             }
         }

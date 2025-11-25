@@ -1,5 +1,5 @@
 // UI Module - HUD, selection, menus
-import { GameState } from './game.js';
+import { GameState, CONFIG } from './game.js';
 
 export class UI {
     constructor(game) {
@@ -57,6 +57,15 @@ export class UI {
         
         document.getElementById('retreat-btn').addEventListener('click', () => {
             this.game.orderRetreat();
+        });
+        
+        // Quick select buttons
+        document.getElementById('select-soldiers-btn').addEventListener('click', () => {
+            this.selectAllOfType('soldier');
+        });
+        
+        document.getElementById('select-workers-btn').addEventListener('click', () => {
+            this.selectAllOfType('worker');
         });
         
         // Minimap click
@@ -220,6 +229,29 @@ export class UI {
         if (workers > 0) text += `${workers} worker${workers > 1 ? 's' : ''}`;
         
         this.selectedCount.textContent = text + ' selected';
+    }
+    
+    selectAllOfType(unitType) {
+        const units = this.game.unitManager.units.filter(u => 
+            u.type === unitType && 
+            u.team === CONFIG.TEAM_PLAYER && 
+            u.state !== 'dead'
+        );
+        
+        // Clear current selection
+        this.game.unitManager.clearSelection();
+        
+        // Select all of this type
+        units.forEach(unit => {
+            unit.selected = true;
+            this.game.unitManager.selectedUnits.push(unit);
+        });
+        
+        // Update UI
+        this.updateSelection(this.game.unitManager.selectedUnits);
+        
+        // Switch to select tool
+        this.game.setTool('select');
     }
 }
 
