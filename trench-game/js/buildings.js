@@ -425,7 +425,7 @@ export class BuildingManager {
             
             // Weapon buildings - only fire if manned!
             if ((building.type === 'machinegun' || building.type === 'artillery')) {
-                if (building.assignedUnit && !building.assignedUnit.state === 'dead') {
+                if (building.assignedUnit && building.assignedUnit.state === 'dead') {
                     // Unit died, clear assignment
                     building.assignedUnit = null;
                 }

@@ -825,7 +825,7 @@ class Unit {
             const completed = this.game.trenchSystem.buildSegment(trench, segIdx, this.buildSpeed * dt);
             
             // Move worker along the trench line as they build
-            if (segment && !completed) {
+            if (segment) {
                 this.x = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
                 this.y = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
             }
@@ -885,7 +885,7 @@ class Unit {
             const completed = this.game.buildingManager.buildWireSegment(wire, segIdx, this.buildSpeed * dt);
             
             // Move worker along the wire line as they build
-            if (segment && !completed) {
+            if (segment) {
                 this.x = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
                 this.y = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
             }
