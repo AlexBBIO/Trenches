@@ -372,7 +372,74 @@ export class Renderer {
                 case 'blood':
                     this.renderBlood(ctx, effect, progress);
                     break;
+                case 'shell_arc':
+                    this.renderShellArc(ctx, effect, progress);
+                    break;
             }
+        }
+    }
+    
+    renderShellArc(ctx, effect, progress) {
+        // Draw artillery shell flying in an arc
+        const startX = effect.x;
+        const startY = effect.y;
+        const endX = effect.targetX;
+        const endY = effect.targetY;
+        
+        // Calculate arc position
+        const t = progress;
+        const x = startX + (endX - startX) * t;
+        const baseY = startY + (endY - startY) * t;
+        
+        // Parabolic arc height
+        const arcHeight = Math.min(200, Math.abs(endX - startX) * 0.15);
+        const y = baseY - arcHeight * Math.sin(t * Math.PI);
+        
+        // Shell size decreases as it gets higher (perspective)
+        const heightFactor = 1 - Math.sin(t * Math.PI) * 0.5;
+        const size = effect.size * heightFactor;
+        
+        // Draw shell
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Rotate to face direction of travel
+        const angle = Math.atan2(endY - startY, endX - startX);
+        ctx.rotate(angle);
+        
+        // Shell body
+        ctx.fillStyle = '#3a3a3a';
+        ctx.beginPath();
+        ctx.ellipse(0, 0, size, size / 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Nose
+        ctx.fillStyle = '#555';
+        ctx.beginPath();
+        ctx.moveTo(size, 0);
+        ctx.lineTo(size + 4, -2);
+        ctx.lineTo(size + 4, 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Trail smoke
+        ctx.fillStyle = `rgba(80, 70, 60, ${0.5 - progress * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(-size - 2, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.restore();
+        
+        // Draw target indicator (pulsing)
+        if (progress > 0.5) {
+            const pulseAlpha = (1 - progress) * 0.6 + Math.sin(progress * 20) * 0.2;
+            ctx.strokeStyle = `rgba(255, 100, 50, ${pulseAlpha})`;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(endX, endY, 20 + (1 - progress) * 20, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     }
     

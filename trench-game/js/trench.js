@@ -26,7 +26,11 @@ export class TrenchSystem {
             segments: [],
             occupants: [],
             width: 24,
-            connections: [] // Connected trench IDs
+            connections: [], // Connected trench IDs
+            health: 100,
+            maxHealth: 100,
+            damaged: false,
+            destroyed: false
         };
         
         // Calculate segments for building
@@ -150,11 +154,158 @@ export class TrenchSystem {
                 end: p2,
                 length,
                 progress: 0, // 0 to 1
-                built: false
+                built: false,
+                health: 100,
+                maxHealth: 100,
+                damaged: false,
+                destroyed: false
             });
         }
         
         trench.totalLength = trench.segments.reduce((sum, s) => sum + s.length, 0);
+    }
+    
+    // Damage trenches at a point (from artillery)
+    damageTrenchesAtPoint(x, y, radius, damage) {
+        for (const trench of this.trenches) {
+            if (trench.isBlueprint || trench.destroyed) continue;
+            
+            for (const segment of trench.segments) {
+                if (!segment.built || segment.destroyed) continue;
+                
+                // Check distance from explosion to segment
+                const dist = this.pointToSegmentDistance(x, y, segment.start, segment.end);
+                
+                if (dist < radius) {
+                    const falloff = 1 - (dist / radius);
+                    const segDamage = damage * falloff;
+                    
+                    segment.health -= segDamage;
+                    segment.damaged = true;
+                    trench.damaged = true;
+                    
+                    // Create dirt effect at damage point
+                    const midX = (segment.start.x + segment.end.x) / 2;
+                    const midY = (segment.start.y + segment.end.y) / 2;
+                    this.game.addEffect('dirt', midX, midY, { size: 10, duration: 0.4 });
+                    
+                    if (segment.health <= 0) {
+                        segment.destroyed = true;
+                        segment.built = false;
+                        this.game.addEffect('explosion', midX, midY, { size: 20, duration: 0.4 });
+                    }
+                }
+            }
+            
+            // Check if all segments destroyed
+            const allDestroyed = trench.segments.every(s => s.destroyed);
+            if (allDestroyed) {
+                trench.destroyed = true;
+            }
+            
+            // Update trench health based on segment health
+            if (trench.segments.length > 0) {
+                const totalHealth = trench.segments.reduce((sum, s) => sum + Math.max(0, s.health), 0);
+                const maxTotalHealth = trench.segments.length * 100;
+                trench.health = (totalHealth / maxTotalHealth) * 100;
+            }
+        }
+    }
+    
+    // Find damaged trench segment for repair
+    findDamagedTrench(x, y, team) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const trench of this.trenches) {
+            if (trench.team !== team || trench.isBlueprint) continue;
+            
+            for (let i = 0; i < trench.segments.length; i++) {
+                const segment = trench.segments[i];
+                
+                // Check for damaged (but not destroyed) segments
+                if (!segment.damaged || segment.destroyed) continue;
+                if (segment.health >= segment.maxHealth) continue;
+                
+                const midX = (segment.start.x + segment.end.x) / 2;
+                const midY = (segment.start.y + segment.end.y) / 2;
+                
+                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = { 
+                        type: 'trench', 
+                        target: trench, 
+                        segmentIndex: i,
+                        x: midX, 
+                        y: midY 
+                    };
+                }
+            }
+            
+            // Also check for destroyed segments that need rebuilding
+            for (let i = 0; i < trench.segments.length; i++) {
+                const segment = trench.segments[i];
+                if (!segment.destroyed) continue;
+                
+                const midX = (segment.start.x + segment.end.x) / 2;
+                const midY = (segment.start.y + segment.end.y) / 2;
+                
+                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = { 
+                        type: 'trench_rebuild', 
+                        target: trench, 
+                        segmentIndex: i,
+                        x: midX, 
+                        y: midY 
+                    };
+                }
+            }
+        }
+        
+        return nearest;
+    }
+    
+    // Repair a trench segment
+    repairTrenchSegment(trench, segmentIndex, amount) {
+        const segment = trench.segments[segmentIndex];
+        if (!segment) return true;
+        
+        // If destroyed, need to rebuild
+        if (segment.destroyed) {
+            segment.progress += amount / (segment.length * 0.5); // Rebuild faster than initial build
+            
+            if (segment.progress >= 1) {
+                segment.progress = 1;
+                segment.built = true;
+                segment.destroyed = false;
+                segment.damaged = true; // Still needs repair
+                segment.health = 30; // Start at partial health
+                return true;
+            }
+            return false;
+        }
+        
+        // Normal repair
+        segment.health = Math.min(segment.maxHealth, segment.health + amount);
+        
+        if (segment.health >= segment.maxHealth) {
+            segment.damaged = false;
+            
+            // Update trench damage status
+            trench.damaged = trench.segments.some(s => s.damaged);
+            trench.destroyed = false;
+            
+            // Update overall trench health
+            const totalHealth = trench.segments.reduce((sum, s) => sum + Math.max(0, s.health), 0);
+            const maxTotalHealth = trench.segments.length * 100;
+            trench.health = (totalHealth / maxTotalHealth) * 100;
+            
+            return true; // Fully repaired
+        }
+        return false;
     }
     
     assignWorkers(trench) {
@@ -509,12 +660,20 @@ export class TrenchSystem {
     
     renderTrench(ctx, trench) {
         if (trench.points.length < 2) return;
+        if (trench.destroyed) return; // Don't render fully destroyed trenches
         
         const width = trench.width;
         
         // Draw each segment
         for (let i = 0; i < trench.segments.length; i++) {
             const segment = trench.segments[i];
+            
+            // Skip destroyed segments (they'll show as gaps)
+            if (segment.destroyed) {
+                // Draw destroyed segment debris
+                this.drawDestroyedSegment(ctx, segment);
+                continue;
+            }
             
             if (trench.isBlueprint) {
                 // Blueprint - dashed outline
@@ -523,7 +682,7 @@ export class TrenchSystem {
                     this.drawTrenchSegment(ctx, segment.start, {
                         x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
                         y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
-                    }, width, false);
+                    }, width, false, segment);
                 }
                 
                 // Unbuilt portion
@@ -540,13 +699,72 @@ export class TrenchSystem {
                 ctx.stroke();
                 ctx.setLineDash([]);
             } else {
-                // Completed trench
-                this.drawTrenchSegment(ctx, segment.start, segment.end, width, true);
+                // Completed trench - pass segment for damage rendering
+                this.drawTrenchSegment(ctx, segment.start, segment.end, width, true, segment);
             }
+        }
+        
+        // Draw health bar if damaged
+        if (trench.damaged && !trench.isBlueprint && trench.health < trench.maxHealth * 0.9) {
+            this.drawTrenchHealthBar(ctx, trench);
         }
     }
     
-    drawTrenchSegment(ctx, start, end, width, complete) {
+    // Draw destroyed trench segment (crater/rubble)
+    drawDestroyedSegment(ctx, segment) {
+        const midX = (segment.start.x + segment.end.x) / 2;
+        const midY = (segment.start.y + segment.end.y) / 2;
+        
+        // Draw rebuilding progress if being repaired
+        if (segment.progress > 0 && segment.progress < 1) {
+            const builtEnd = {
+                x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
+                y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
+            };
+            this.drawTrenchSegment(ctx, segment.start, builtEnd, 24, false, segment);
+        }
+        
+        // Draw crater/debris for destroyed portion
+        ctx.fillStyle = '#2a1a0a';
+        ctx.beginPath();
+        ctx.arc(midX, midY, 15, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Scattered debris
+        ctx.fillStyle = '#4a3a2a';
+        for (let i = 0; i < 8; i++) {
+            const ox = (Math.random() - 0.5) * 30;
+            const oy = (Math.random() - 0.5) * 30;
+            ctx.fillRect(midX + ox, midY + oy, 3 + Math.random() * 5, 3 + Math.random() * 5);
+        }
+    }
+    
+    // Draw health bar for damaged trench
+    drawTrenchHealthBar(ctx, trench) {
+        // Find center of trench for health bar
+        const centerIdx = Math.floor(trench.points.length / 2);
+        const centerPoint = trench.points[centerIdx];
+        
+        const barWidth = 40;
+        const barHeight = 4;
+        const healthPercent = trench.health / trench.maxHealth;
+        
+        ctx.fillStyle = '#333';
+        ctx.fillRect(centerPoint.x - barWidth / 2, centerPoint.y - 20, barWidth, barHeight);
+        
+        ctx.fillStyle = healthPercent > 0.5 ? '#4a4' : healthPercent > 0.25 ? '#aa4' : '#a44';
+        ctx.fillRect(centerPoint.x - barWidth / 2, centerPoint.y - 20, barWidth * healthPercent, barHeight);
+        
+        // "DAMAGED" indicator
+        if (healthPercent < 0.5) {
+            ctx.fillStyle = '#ff4444';
+            ctx.font = '8px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('DAMAGED', centerPoint.x, centerPoint.y - 25);
+        }
+    }
+    
+    drawTrenchSegment(ctx, start, end, width, complete, segment = null) {
         // Dark WW1 style trenches
         const dx = end.x - start.x;
         const dy = end.y - start.y;
@@ -556,8 +774,18 @@ export class TrenchSystem {
         const nx = -dy / length;
         const ny = dx / length;
         
+        // Check damage state
+        const isDamaged = segment && segment.damaged && segment.health < segment.maxHealth;
+        const healthPercent = segment ? segment.health / segment.maxHealth : 1;
+        
         // Outer sandbag edge - dithered for pixel look
-        const outerColor = complete ? CONFIG.COLORS.SANDBAG : '#5a5040';
+        let outerColor = complete ? CONFIG.COLORS.SANDBAG : '#5a5040';
+        if (isDamaged) {
+            // Darker color for damaged sections
+            const darkFactor = 0.5 + healthPercent * 0.5;
+            outerColor = this.darkenColor(CONFIG.COLORS.SANDBAG, darkFactor);
+        }
+        
         ctx.strokeStyle = outerColor;
         ctx.lineWidth = width;
         ctx.lineCap = 'round';
@@ -584,6 +812,54 @@ export class TrenchSystem {
         
         if (complete) {
             this.addTrenchDetail(ctx, start, end, width, length);
+        }
+        
+        // Draw damage indicators
+        if (isDamaged && healthPercent < 0.8) {
+            this.drawDamageIndicators(ctx, start, end, length, healthPercent);
+        }
+    }
+    
+    // Darken a hex color
+    darkenColor(hex, factor) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        
+        const newR = Math.floor(r * factor);
+        const newG = Math.floor(g * factor);
+        const newB = Math.floor(b * factor);
+        
+        return `#${newR.toString(16).padStart(2, '0')}${newG.toString(16).padStart(2, '0')}${newB.toString(16).padStart(2, '0')}`;
+    }
+    
+    // Draw damage indicators (craters, debris)
+    drawDamageIndicators(ctx, start, end, length, healthPercent) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        
+        // Number of damage marks based on damage level
+        const damageMarks = Math.floor((1 - healthPercent) * 5);
+        
+        for (let i = 0; i < damageMarks; i++) {
+            const t = (i + 0.5) / damageMarks;
+            const x = start.x + dx * t;
+            const y = start.y + dy * t;
+            
+            // Draw small crater/damage marks
+            ctx.fillStyle = '#2a1a0a';
+            ctx.beginPath();
+            ctx.arc(x + (Math.random() - 0.5) * 10, y + (Math.random() - 0.5) * 10, 
+                    3 + Math.random() * 5, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Debris
+            ctx.fillStyle = '#4a3a2a';
+            for (let j = 0; j < 3; j++) {
+                const ox = (Math.random() - 0.5) * 15;
+                const oy = (Math.random() - 0.5) * 15;
+                ctx.fillRect(x + ox, y + oy, 2 + Math.random() * 3, 2 + Math.random() * 3);
+            }
         }
     }
     
