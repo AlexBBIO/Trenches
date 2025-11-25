@@ -781,10 +781,10 @@ export class Renderer {
         // Draw Fog of War overlay (disabled - full vision is more fun)
         // this.renderFogOfWar(ctx);
         
-        // Draw scout plane if active
-        if (this.game.scoutFlyover && this.game.scoutFlyover.active) {
-            this.renderScoutPlane(ctx);
-        }
+        // Scout flyover disabled for now
+        // if (this.game.scoutFlyover && this.game.scoutFlyover.active) {
+        //     this.renderScoutPlane(ctx);
+        // }
         
         // Draw selection box if dragging
         if (this.game.input.isDraggingSelection) {

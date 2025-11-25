@@ -313,8 +313,8 @@ class Game {
         // Update effects
         this.updateEffects(this.deltaTime);
         
-        // Update scout flyover
-        this.updateScoutFlyover(this.deltaTime);
+        // Scout flyover disabled for now
+        // this.updateScoutFlyover(this.deltaTime);
         
         // Check win/lose conditions
         this.checkGameOver();

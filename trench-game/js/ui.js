@@ -75,10 +75,10 @@ export class UI {
         this.trainTimer = document.getElementById('train-timer');
         this.autoCallTrainCheckbox = document.getElementById('auto-call-train');
         
-        // Scout flyover elements
-        this.scoutFlyoverBtn = document.getElementById('scout-flyover-btn');
-        this.scoutCooldown = document.getElementById('scout-cooldown');
-        this.scoutCooldownText = document.getElementById('scout-cooldown-text');
+        // Scout flyover elements (disabled for now)
+        // this.scoutFlyoverBtn = document.getElementById('scout-flyover-btn');
+        // this.scoutCooldown = document.getElementById('scout-cooldown');
+        // this.scoutCooldownText = document.getElementById('scout-cooldown-text');
         
         // Setup event listeners
         this.setupEventListeners();
@@ -162,59 +162,27 @@ export class UI {
             this.orderTrainBtn.addEventListener('click', () => this.handleOrderTrain());
         }
         
-        // Scout flyover button
-        if (this.scoutFlyoverBtn) {
-            this.scoutFlyoverBtn.addEventListener('click', () => this.handleScoutFlyover());
-        }
-        
-        // Keyboard shortcut for scout flyover (F key)
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'f' || e.key === 'F') {
-                if (this.game.state === 'playing') {
-                    this.handleScoutFlyover();
-                }
-            }
-        });
+        // Scout flyover disabled for now
+        // if (this.scoutFlyoverBtn) {
+        //     this.scoutFlyoverBtn.addEventListener('click', () => this.handleScoutFlyover());
+        // }
+        // document.addEventListener('keydown', (e) => {
+        //     if (e.key === 'f' || e.key === 'F') {
+        //         if (this.game.state === 'playing') {
+        //             this.handleScoutFlyover();
+        //         }
+        //     }
+        // });
     }
     
-    handleScoutFlyover() {
-        if (!this.game.scoutFlyover) return;
-        
-        if (this.game.startScoutFlyover()) {
-            // Show activation feedback
-            this.scoutFlyoverBtn.classList.add('active');
-        }
-    }
-    
-    updateScoutFlyoverStatus() {
-        if (!this.scoutFlyoverBtn || !this.game.scoutFlyover) return;
-        
-        const scout = this.game.scoutFlyover;
-        
-        if (scout.active) {
-            // Flyover is active
-            this.scoutFlyoverBtn.classList.add('active');
-            this.scoutFlyoverBtn.classList.remove('on-cooldown', 'disabled');
-            this.scoutCooldown.classList.add('hidden');
-        } else if (scout.cooldown > 0) {
-            // On cooldown
-            this.scoutFlyoverBtn.classList.remove('active');
-            this.scoutFlyoverBtn.classList.add('on-cooldown');
-            this.scoutCooldown.classList.remove('hidden');
-            this.scoutCooldownText.textContent = `${Math.ceil(scout.cooldown)}s`;
-        } else {
-            // Ready to use
-            this.scoutFlyoverBtn.classList.remove('active', 'on-cooldown');
-            this.scoutCooldown.classList.add('hidden');
-            
-            // Check if can afford
-            if (this.game.canAfford(scout.cost)) {
-                this.scoutFlyoverBtn.classList.remove('disabled');
-            } else {
-                this.scoutFlyoverBtn.classList.add('disabled');
-            }
-        }
-    }
+    // Scout flyover methods disabled for now
+    // handleScoutFlyover() {
+    //     if (!this.game.scoutFlyover) return;
+    //     if (this.game.startScoutFlyover()) {
+    //         this.scoutFlyoverBtn.classList.add('active');
+    //     }
+    // }
+    // updateScoutFlyoverStatus() { ... }
     
     // Update the cost display for train orders
     updateOrderCost() {
@@ -422,8 +390,8 @@ export class UI {
             this.updateOrderCost();
         }
         
-        // Update scout flyover status
-        this.updateScoutFlyoverStatus();
+        // Scout flyover disabled for now
+        // this.updateScoutFlyoverStatus();
         
         // Update building info panel if a building is selected
         if (this.selectedBuilding) {
