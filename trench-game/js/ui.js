@@ -67,6 +67,7 @@ export class UI {
         this.trainOrderForm = document.getElementById('train-order-form');
         this.trainPending = document.getElementById('train-pending');
         this.trainTimer = document.getElementById('train-timer');
+        this.autoCallTrainCheckbox = document.getElementById('auto-call-train');
         
         // Setup event listeners
         this.setupEventListeners();
@@ -239,6 +240,32 @@ export class UI {
             if (this.trainPending && !this.trainPending.classList.contains('hidden')) {
                 this.showTrainOrderForm();
             }
+            
+            // Auto-call train if enabled and we can afford it
+            this.checkAutoCallTrain();
+        }
+    }
+    
+    // Check if we should auto-call a train
+    checkAutoCallTrain() {
+        // Make sure checkbox exists and is checked
+        if (!this.autoCallTrainCheckbox || !this.autoCallTrainCheckbox.checked) return;
+        
+        // Make sure train system exists and no order is pending
+        if (!this.game.trainSystem || this.game.trainSystem.pendingOrder) return;
+        
+        // Get the current order values
+        const soldiers = parseInt(this.orderSoldiers?.value) || 0;
+        const workers = parseInt(this.orderWorkers?.value) || 0;
+        const shells = parseInt(this.orderShells?.value) || 0;
+        
+        // Must have something to order
+        if (soldiers + workers + shells === 0) return;
+        
+        // Check if we can afford it
+        if (this.game.trainSystem.canAffordOrder(soldiers, workers, shells)) {
+            // Auto-order the train!
+            this.handleOrderTrain();
         }
     }
     

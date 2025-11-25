@@ -57,7 +57,7 @@ export const CONFIG = {
     VISION_OBSERVATION_POST: 400,
     
     // Medical Tent
-    MEDICAL_TENT_HEAL_RANGE: 150,
+    MEDICAL_TENT_HEAL_RANGE: 250,
     MEDICAL_TENT_HEAL_RATE: 5,
     
     // Bunker
@@ -457,12 +457,58 @@ class Game {
     }
     
     orderRetreat() {
-        this.selectedUnits.forEach(unit => {
-            const nearestTrench = this.trenchSystem.findNearestTrench(unit.x, unit.y, CONFIG.TEAM_PLAYER);
-            if (nearestTrench) {
-                unit.moveTo(nearestTrench.x, nearestTrench.y);
+        // Find all player trenches and sort by x position
+        const playerTrenches = this.trenchSystem.trenches.filter(t => 
+            t.team === CONFIG.TEAM_PLAYER && !t.isBlueprint
+        );
+        
+        if (playerTrenches.length === 0) {
+            // No trenches - just retreat toward base
+            this.selectedUnits.forEach(unit => {
+                unit.moveTo(100, unit.y);
                 unit.setState('retreating');
+            });
+            return;
+        }
+        
+        // Get average x position of each trench
+        const trenchPositions = playerTrenches.map(trench => {
+            const avgX = trench.points.reduce((sum, p) => sum + p.x, 0) / trench.points.length;
+            const avgY = trench.points.reduce((sum, p) => sum + p.y, 0) / trench.points.length;
+            return { trench, avgX, avgY };
+        });
+        
+        // Sort by x position - forward (right) to back (left)
+        trenchPositions.sort((a, b) => b.avgX - a.avgX);
+        
+        const forwardTrench = trenchPositions[0]; // Rightmost = forward
+        const backTrench = trenchPositions[trenchPositions.length - 1]; // Leftmost = back
+        
+        this.selectedUnits.forEach((unit, index) => {
+            let targetTrench;
+            
+            if (unit.type === 'soldier') {
+                // Soldiers go to forward-most trench for cover
+                targetTrench = forwardTrench;
+            } else {
+                // Workers go to back-most trench for safety
+                targetTrench = backTrench;
             }
+            
+            // Find a position along the target trench
+            const trenchPos = this.trenchSystem.findUnoccupiedTrenchPosition(
+                unit.x, unit.y, CONFIG.TEAM_PLAYER, unit
+            );
+            
+            if (trenchPos && trenchPos.trench === targetTrench.trench) {
+                unit.moveTo(trenchPos.x, trenchPos.y);
+            } else {
+                // Fall back to trench center with some spread
+                const spread = (index % 5 - 2) * 20;
+                unit.moveTo(targetTrench.avgX, targetTrench.avgY + spread);
+            }
+            
+            unit.setState('retreating');
         });
     }
     

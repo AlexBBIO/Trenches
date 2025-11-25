@@ -2010,11 +2010,26 @@ export class BuildingManager {
         ctx.fillStyle = '#6a6a62';
         ctx.fillRect(-38, -28, 76, 8);
         
-        // Firing slits
-        ctx.fillStyle = '#1a1a15';
+        // Firing slits with soldiers visible inside
         for (let i = 0; i < 4; i++) {
             const slitX = -25 + i * 17;
+            
+            // Dark slit background
+            ctx.fillStyle = '#1a1a15';
             ctx.fillRect(slitX, -10, 12, 4);
+            
+            // Show soldier helmet if occupied
+            if (!building.isBlueprint && building.occupants && i < building.occupants.length) {
+                // Helmet visible in slit
+                ctx.fillStyle = '#4a5a3a'; // Helmet color
+                ctx.beginPath();
+                ctx.arc(slitX + 6, -8, 4, Math.PI, 0); // Half circle helmet
+                ctx.fill();
+                
+                // Helmet rim
+                ctx.fillStyle = '#3a4a2a';
+                ctx.fillRect(slitX + 2, -8, 8, 2);
+            }
         }
         
         // Entrance (back)

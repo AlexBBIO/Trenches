@@ -788,6 +788,76 @@ body {
     color: var(--color-gold);
 }
 
+/* === AUTO CALL TRAIN CHECKBOX === */
+.auto-train-row {
+    margin: 10px 0;
+    padding: 8px 0;
+    border-top: 1px dashed var(--color-mud);
+}
+
+.auto-train-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.auto-train-label input[type="checkbox"] {
+    display: none;
+}
+
+.auto-train-checkbox {
+    width: 18px;
+    height: 18px;
+    background: var(--color-mud-dark);
+    border: 2px solid var(--color-mud);
+    position: relative;
+    transition: all 0.15s;
+}
+
+.auto-train-checkbox::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    background: var(--color-gold);
+    transform: translate(-50%, -50%);
+    transition: all 0.15s;
+}
+
+.auto-train-label:hover .auto-train-checkbox {
+    border-color: var(--color-khaki);
+}
+
+.auto-train-label input[type="checkbox"]:checked + .auto-train-checkbox {
+    border-color: var(--color-gold);
+    background: var(--color-olive-dark);
+}
+
+.auto-train-label input[type="checkbox"]:checked + .auto-train-checkbox::after {
+    width: 8px;
+    height: 8px;
+}
+
+.auto-train-text {
+    font-family: var(--font-military);
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--color-ui-text);
+    transition: color 0.15s;
+}
+
+.auto-train-label:hover .auto-train-text {
+    color: var(--color-ui-text-light);
+}
+
+.auto-train-label input[type="checkbox"]:checked ~ .auto-train-text {
+    color: var(--color-gold);
+}
+
 .order-submit-btn {
     width: 100%;
     padding: 10px;
