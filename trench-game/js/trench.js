@@ -502,7 +502,13 @@ export class TrenchSystem {
     }
     
     render(ctx) {
-        for (const trench of this.trenches) {
+        // Sort trenches so we render blueprints last (on top)
+        const sortedTrenches = [...this.trenches].sort((a, b) => {
+            if (a.isBlueprint === b.isBlueprint) return 0;
+            return a.isBlueprint ? 1 : -1;
+        });
+        
+        for (const trench of sortedTrenches) {
             this.renderTrench(ctx, trench);
         }
     }
@@ -517,24 +523,35 @@ export class TrenchSystem {
             const segment = trench.segments[i];
             
             if (trench.isBlueprint) {
-                // Blueprint - dashed outline
+                // Blueprint - dashed outline with better visibility
                 if (segment.progress > 0) {
-                    // Partially built
-                    this.drawTrenchSegment(ctx, segment.start, {
+                    // Partially built section
+                    const partialEnd = {
                         x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
                         y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
-                    }, width, false);
+                    };
+                    this.drawTrenchSegment(ctx, segment.start, partialEnd, width, false);
                 }
                 
-                // Unbuilt portion
-                ctx.strokeStyle = 'rgba(195, 176, 145, 0.4)';
+                // Unbuilt portion - dashed outline
+                ctx.strokeStyle = 'rgba(138, 122, 90, 0.5)';
                 ctx.lineWidth = width;
                 ctx.lineCap = 'round';
-                ctx.setLineDash([10, 10]);
+                ctx.setLineDash([12, 8]);
                 
                 ctx.beginPath();
                 const startX = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
                 const startY = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
+                ctx.moveTo(startX, startY);
+                ctx.lineTo(segment.end.x, segment.end.y);
+                ctx.stroke();
+                ctx.setLineDash([]);
+                
+                // Inner dashed line
+                ctx.strokeStyle = 'rgba(26, 26, 10, 0.5)';
+                ctx.lineWidth = width - 10;
+                ctx.setLineDash([12, 8]);
+                ctx.beginPath();
                 ctx.moveTo(startX, startY);
                 ctx.lineTo(segment.end.x, segment.end.y);
                 ctx.stroke();
@@ -547,7 +564,7 @@ export class TrenchSystem {
     }
     
     drawTrenchSegment(ctx, start, end, width, complete) {
-        // Dark WW1 style trenches
+        // WWI style trenches with sandbag walls and duckboards
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         const length = Math.sqrt(dx * dx + dy * dy);
@@ -556,58 +573,139 @@ export class TrenchSystem {
         const nx = -dy / length;
         const ny = dx / length;
         
-        // Outer sandbag edge - dithered for pixel look
-        const outerColor = complete ? CONFIG.COLORS.SANDBAG : '#5a5040';
-        ctx.strokeStyle = outerColor;
-        ctx.lineWidth = width;
+        // Shadow underneath the trench
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.moveTo(start.x + nx * (width/2 + 3) + 3, start.y + ny * (width/2 + 3) + 3);
+        ctx.lineTo(end.x + nx * (width/2 + 3) + 3, end.y + ny * (width/2 + 3) + 3);
+        ctx.lineTo(end.x - nx * (width/2 + 3) + 3, end.y - ny * (width/2 + 3) + 3);
+        ctx.lineTo(start.x - nx * (width/2 + 3) + 3, start.y - ny * (width/2 + 3) + 3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Outer sandbag parapet (raised wall)
+        const sandbagColor = complete ? CONFIG.COLORS.SANDBAG : CONFIG.COLORS.SANDBAG_DARK;
+        ctx.strokeStyle = sandbagColor;
+        ctx.lineWidth = width + 4;
         ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(end.x, end.y);
         ctx.stroke();
         
-        // Inner trench (dark pit)
+        // Sandbag texture on parapet
+        if (complete && length > 10) {
+            this.drawSandbagParapet(ctx, start, end, width, length, nx, ny);
+        }
+        
+        // Inner trench wall (darker earth)
+        ctx.strokeStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.lineWidth = width - 6;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+        
+        // Trench floor (very dark)
         ctx.strokeStyle = CONFIG.COLORS.TRENCH;
-        ctx.lineWidth = width - 10;
+        ctx.lineWidth = width - 12;
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(end.x, end.y);
         ctx.stroke();
         
-        // Even darker center
-        ctx.strokeStyle = '#1a1a0a';
-        ctx.lineWidth = width - 16;
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
-        
+        // Duckboard walkway in center
         if (complete) {
-            this.addTrenchDetail(ctx, start, end, width, length);
+            this.drawDuckboards(ctx, start, end, width, length, dx, dy, nx, ny);
         }
     }
     
-    addTrenchDetail(ctx, start, end, width, length) {
+    drawSandbagParapet(ctx, start, end, width, length, nx, ny) {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         
-        // Duckboard planks
-        ctx.strokeStyle = '#3a2a1a';
+        // Draw sandbag details on both sides
+        const bagSpacing = 12;
+        const bagCount = Math.floor(length / bagSpacing);
+        
+        for (let i = 0; i < bagCount; i++) {
+            const t = (i + 0.5) / bagCount;
+            const cx = start.x + dx * t;
+            const cy = start.y + dy * t;
+            
+            // Outer edge sandbags (both sides)
+            for (let side = -1; side <= 1; side += 2) {
+                const bx = cx + nx * (width/2 + 1) * side;
+                const by = cy + ny * (width/2 + 1) * side;
+                
+                // Sandbag shape
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+                ctx.beginPath();
+                ctx.ellipse(bx + 1, by + 1, 5, 3, Math.atan2(dy, dx), 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+                ctx.beginPath();
+                ctx.ellipse(bx, by, 5, 3, Math.atan2(dy, dx), 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+    
+    drawDuckboards(ctx, start, end, width, length, dx, dy, nx, ny) {
+        // Wooden duckboard walkway
+        const plankWidth = width - 16;
+        const plankSpacing = 8;
+        const plankCount = Math.floor(length / plankSpacing);
+        
+        for (let i = 0; i < plankCount; i++) {
+            const t = (i + 0.5) / plankCount;
+            const px = start.x + dx * t;
+            const py = start.y + dy * t;
+            
+            // Plank shadow
+            ctx.fillStyle = '#1a1505';
+            ctx.save();
+            ctx.translate(px + 1, py + 1);
+            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+            ctx.fillRect(-plankWidth/2, -2, plankWidth, 4);
+            ctx.restore();
+            
+            // Main plank
+            ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+            ctx.fillRect(-plankWidth/2, -2, plankWidth, 4);
+            
+            // Plank highlight
+            ctx.fillStyle = '#5a4a30';
+            ctx.fillRect(-plankWidth/2 + 1, -1, plankWidth - 2, 1);
+            
+            // Nail details
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(-plankWidth/2 + 2, 0, 2, 2);
+            ctx.fillRect(plankWidth/2 - 4, 0, 2, 2);
+            
+            ctx.restore();
+        }
+        
+        // Side rails for duckboards
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
         ctx.lineWidth = 2;
         
-        const plankCount = Math.floor(length / 10);
-        for (let i = 1; i < plankCount; i++) {
-            const t = i / plankCount;
-            const x = start.x + dx * t;
-            const y = start.y + dy * t;
-            const nx = -dy / length;
-            const ny = dx / length;
-            
-            ctx.beginPath();
-            ctx.moveTo(x - nx * 5, y - ny * 5);
-            ctx.lineTo(x + nx * 5, y + ny * 5);
-            ctx.stroke();
-        }
+        // Left rail
+        ctx.beginPath();
+        ctx.moveTo(start.x + nx * (plankWidth/2 - 2), start.y + ny * (plankWidth/2 - 2));
+        ctx.lineTo(end.x + nx * (plankWidth/2 - 2), end.y + ny * (plankWidth/2 - 2));
+        ctx.stroke();
+        
+        // Right rail
+        ctx.beginPath();
+        ctx.moveTo(start.x - nx * (plankWidth/2 - 2), start.y - ny * (plankWidth/2 - 2));
+        ctx.lineTo(end.x - nx * (plankWidth/2 - 2), end.y - ny * (plankWidth/2 - 2));
+        ctx.stroke();
     }
 }
 

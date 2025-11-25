@@ -201,129 +201,239 @@ export class TrainSystem {
     renderLocomotive(ctx, x, y, team) {
         const isEnemy = team === CONFIG.TEAM_ENEMY;
         
-        // Main body
-        ctx.fillStyle = isEnemy ? '#4a3020' : '#2a4a30';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(x + 10, y + 25, 45, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
         
-        ctx.fillRect(x - 30, y - 25, 70, 40);
-        ctx.strokeRect(x - 30, y - 25, 70, 40);
+        // Main boiler body
+        const bodyColor = isEnemy ? '#3a2515' : '#1a3520';
+        const trimColor = isEnemy ? '#4a3525' : '#2a4530';
+        
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(x - 30, y - 22, 75, 38);
+        
+        // Boiler (cylindrical appearance)
+        ctx.fillStyle = trimColor;
+        ctx.beginPath();
+        ctx.ellipse(x + 15, y - 3, 35, 18, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.ellipse(x + 15, y - 3, 33, 16, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Boiler bands
+        ctx.strokeStyle = '#4a4a4a';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 4; i++) {
+            const bx = x - 15 + i * 15;
+            ctx.beginPath();
+            ctx.moveTo(bx, y - 18);
+            ctx.lineTo(bx, y + 12);
+            ctx.stroke();
+        }
         
         // Cabin
-        ctx.fillStyle = isEnemy ? '#5a4030' : '#3a5a40';
-        ctx.fillRect(x - 30, y - 40, 35, 20);
-        ctx.strokeRect(x - 30, y - 40, 35, 20);
+        ctx.fillStyle = trimColor;
+        ctx.fillRect(x - 32, y - 38, 38, 22);
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(x - 30, y - 36, 34, 18);
+        
+        // Cabin roof
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(x - 35, y - 42, 42, 6);
         
         // Window
-        ctx.fillStyle = '#8af';
-        ctx.fillRect(x - 25, y - 35, 12, 10);
-        
-        // Smokestack
-        ctx.fillStyle = '#333';
-        ctx.fillRect(x + 20, y - 45, 12, 25);
-        
-        // Stack top
-        ctx.fillRect(x + 17, y - 50, 18, 8);
-        
-        // Boiler details
-        ctx.strokeStyle = '#444';
+        ctx.fillStyle = '#2a4a5a';
+        ctx.fillRect(x - 26, y - 32, 14, 10);
+        ctx.strokeStyle = '#1a1a1a';
         ctx.lineWidth = 1;
-        for (let i = 0; i < 4; i++) {
-            ctx.beginPath();
-            ctx.arc(x + i * 12, y - 5, 3, 0, Math.PI * 2);
-            ctx.stroke();
-        }
+        ctx.strokeRect(x - 26, y - 32, 14, 10);
         
-        // Wheels
-        ctx.fillStyle = '#333';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
+        // Smokestack - WWI era cylindrical
+        ctx.fillStyle = '#2a2a2a';
+        ctx.fillRect(x + 22, y - 50, 14, 32);
         
-        const wheelY = y + 15;
-        const wheelRadius = 12;
-        
-        for (const wx of [x - 15, x + 10, x + 30]) {
-            ctx.beginPath();
-            ctx.arc(wx, wheelY, wheelRadius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-            
-            // Wheel details
-            ctx.fillStyle = '#555';
-            ctx.beginPath();
-            ctx.arc(wx, wheelY, 4, 0, Math.PI * 2);
-            ctx.fill();
-            
-            ctx.fillStyle = '#333';
-        }
-        
-        // Cowcatcher
-        ctx.fillStyle = '#444';
+        // Stack funnel top
+        ctx.fillStyle = '#3a3a3a';
         ctx.beginPath();
-        ctx.moveTo(x + 40, y + 15);
-        ctx.lineTo(x + 55, y + 20);
-        ctx.lineTo(x + 55, y + 5);
-        ctx.lineTo(x + 40, y - 5);
+        ctx.moveTo(x + 20, y - 50);
+        ctx.lineTo(x + 38, y - 50);
+        ctx.lineTo(x + 36, y - 58);
+        ctx.lineTo(x + 22, y - 58);
         ctx.closePath();
         ctx.fill();
+        
+        // Stack rim
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(x + 19, y - 52, 20, 4);
+        
+        // Front lamp
+        ctx.fillStyle = '#5a5a5a';
+        ctx.beginPath();
+        ctx.arc(x + 50, y - 5, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#8a8a6a';
+        ctx.beginPath();
+        ctx.arc(x + 50, y - 5, 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wheels - WWI era spoked
+        const wheelY = y + 18;
+        this.drawTrainWheel(ctx, x - 15, wheelY, 14);
+        this.drawTrainWheel(ctx, x + 10, wheelY, 14);
+        this.drawTrainWheel(ctx, x + 35, wheelY, 14);
+        
+        // Connecting rod
+        ctx.strokeStyle = '#4a4a4a';
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(x - 15, wheelY);
+        ctx.lineTo(x + 35, wheelY);
         ctx.stroke();
+        
+        // Cowcatcher/buffer
+        ctx.fillStyle = '#3a3a3a';
+        ctx.beginPath();
+        ctx.moveTo(x + 45, y + 18);
+        ctx.lineTo(x + 58, y + 22);
+        ctx.lineTo(x + 58, y + 5);
+        ctx.lineTo(x + 45, y - 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Buffer beam
+        ctx.fillStyle = isEnemy ? '#5a3525' : '#355a45';
+        ctx.fillRect(x + 42, y + 2, 5, 14);
+    }
+    
+    drawTrainWheel(ctx, x, y, radius) {
+        // Outer rim
+        ctx.fillStyle = '#2a2a2a';
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner wheel
+        ctx.fillStyle = '#3a3a3a';
+        ctx.beginPath();
+        ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Spokes
+        ctx.strokeStyle = '#4a4a4a';
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + Math.cos(angle) * (radius - 3), y + Math.sin(angle) * (radius - 3));
+            ctx.stroke();
+        }
+        
+        // Hub
+        ctx.fillStyle = '#5a5a5a';
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
     }
     
     renderWagon(ctx, x, y, team) {
         const isEnemy = team === CONFIG.TEAM_ENEMY;
         
-        // Wagon body
-        ctx.fillStyle = isEnemy ? '#5a4535' : '#455a45';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(x + 5, y + 22, 30, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
         
-        ctx.fillRect(x - 20, y - 20, 50, 35);
-        ctx.strokeRect(x - 20, y - 20, 50, 35);
+        // Wagon body - boxcar style
+        const bodyColor = isEnemy ? '#4a3525' : '#354a35';
+        const trimColor = isEnemy ? '#5a4535' : '#455a45';
         
-        // Planks texture
-        ctx.strokeStyle = '#333';
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(x - 22, y - 18, 54, 32);
+        
+        // Darker bottom
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(x - 22, y + 8, 54, 6);
+        
+        // Planks texture - vertical
+        ctx.strokeStyle = trimColor;
         ctx.lineWidth = 1;
-        for (let i = 0; i < 4; i++) {
+        for (let i = 0; i < 7; i++) {
             ctx.beginPath();
-            ctx.moveTo(x - 20, y - 15 + i * 10);
-            ctx.lineTo(x + 30, y - 15 + i * 10);
+            ctx.moveTo(x - 18 + i * 8, y - 16);
+            ctx.lineTo(x - 18 + i * 8, y + 6);
             ctx.stroke();
         }
+        
+        // Horizontal trim
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(x - 24, y - 20, 58, 3);
+        ctx.fillRect(x - 24, y + 5, 58, 3);
+        
+        // Door (center)
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(x - 8, y - 14, 16, 18);
+        ctx.strokeStyle = '#3a3a3a';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - 8, y - 14, 16, 18);
+        
+        // Door handle
+        ctx.fillStyle = '#5a5a5a';
+        ctx.fillRect(x + 4, y - 4, 3, 6);
+        
+        // Roof
+        ctx.fillStyle = '#3a3a3a';
+        ctx.beginPath();
+        ctx.moveTo(x - 24, y - 20);
+        ctx.lineTo(x - 20, y - 26);
+        ctx.lineTo(x + 30, y - 26);
+        ctx.lineTo(x + 34, y - 20);
+        ctx.closePath();
+        ctx.fill();
         
         // Wheels
-        ctx.fillStyle = '#333';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
-        
-        const wheelY = y + 15;
-        const wheelRadius = 8;
-        
-        for (const wx of [x - 10, x + 20]) {
-            ctx.beginPath();
-            ctx.arc(wx, wheelY, wheelRadius, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-        }
+        this.drawTrainWheel(ctx, x - 10, y + 18, 10);
+        this.drawTrainWheel(ctx, x + 20, y + 18, 10);
         
         // Coupling
-        ctx.fillStyle = '#555';
-        ctx.fillRect(x + 28, y, 8, 4);
+        ctx.fillStyle = '#4a4a4a';
+        ctx.fillRect(x + 30, y + 2, 10, 5);
     }
     
     renderSteam(ctx, train) {
         const time = performance.now() / 1000;
         
-        ctx.fillStyle = 'rgba(200, 200, 200, 0.6)';
-        
-        for (let i = 0; i < 5; i++) {
-            const offset = (time * 50 + i * 20) % 100;
-            const size = 8 + offset * 0.3;
-            const alpha = 0.6 - offset / 200;
+        // WWI era darker, dirtier smoke
+        for (let i = 0; i < 6; i++) {
+            const offset = (time * 60 + i * 25) % 120;
+            const size = 10 + offset * 0.4;
+            const alpha = 0.7 - offset / 180;
             
+            // Darker smoke
             ctx.globalAlpha = Math.max(0, alpha);
+            ctx.fillStyle = `rgb(${60 - offset/3}, ${55 - offset/3}, ${45 - offset/3})`;
+            
+            const swirl = Math.sin(time * 2 + i * 0.8) * 8;
             ctx.beginPath();
-            ctx.arc(25, -50 - offset + Math.sin(time * 3 + i) * 5, size, 0, Math.PI * 2);
+            ctx.arc(28 + swirl, -55 - offset + Math.sin(time * 3 + i) * 4, size, 0, Math.PI * 2);
             ctx.fill();
+        }
+        
+        // Occasional spark
+        if (Math.sin(time * 10) > 0.9) {
+            ctx.fillStyle = '#ffaa44';
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(28 + Math.random() * 10, -60 - Math.random() * 20, 2, 2);
         }
         
         ctx.globalAlpha = 1;
