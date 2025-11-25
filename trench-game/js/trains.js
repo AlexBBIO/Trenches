@@ -19,7 +19,7 @@ export class TrainSystem {
         
         // Enemy train timer (player trains are now on-demand)
         this.enemyTrainTimer = 0;
-        this.enemyInterval = CONFIG.TRAIN_INTERVAL * 1.2; // Enemy slightly slower
+        this.enemyInterval = 60000; // 60 seconds - matches player train arrival time
         
         // Pending player train orders
         this.pendingOrder = null; // { soldiers, workers, shells, arrivalTime }

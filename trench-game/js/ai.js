@@ -368,26 +368,49 @@ export class AIController {
                     unit.x, unit.y, unit.attackRange, this.team
                 );
                 
-                if (enemies.length > 0) {
-                    let best = null;
-                    let bestScore = -Infinity;
+                // Also check for enemy buildings (artillery, machine guns) in range
+                const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
+                    b.team === CONFIG.TEAM_PLAYER && 
+                    !b.destroyed && 
+                    !b.isBlueprint &&
+                    b.type !== 'hq' &&
+                    Math.sqrt((b.x - unit.x) ** 2 + (b.y - unit.y) ** 2) <= unit.attackRange
+                );
+                
+                // Find the best target (units or buildings)
+                let best = null;
+                let bestScore = -Infinity;
+                
+                for (const enemy of enemies) {
+                    const dist = Math.sqrt(
+                        (enemy.x - unit.x) ** 2 + (enemy.y - unit.y) ** 2
+                    );
+                    const score = -dist + (enemy.state === UnitState.CHARGING ? 100 : 0);
                     
-                    for (const enemy of enemies) {
-                        const dist = Math.sqrt(
-                            (enemy.x - unit.x) ** 2 + (enemy.y - unit.y) ** 2
-                        );
-                        const score = -dist + (enemy.state === UnitState.CHARGING ? 100 : 0);
-                        
-                        if (score > bestScore) {
-                            bestScore = score;
-                            best = enemy;
-                        }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = enemy;
                     }
+                }
+                
+                // Buildings are valid targets too - prioritize manned ones
+                for (const building of enemyBuildings) {
+                    const dist = Math.sqrt(
+                        (building.x - unit.x) ** 2 + (building.y - unit.y) ** 2
+                    );
+                    // Prioritize manned buildings (they're shooting at us!)
+                    const mannedBonus = building.assignedUnit ? 50 : 0;
+                    const score = -dist + mannedBonus;
                     
-                    if (best) {
-                        unit.attackTarget = best;
-                        unit.setState(UnitState.FIGHTING);
+                    if (score > bestScore) {
+                        bestScore = score;
+                        best = building;
                     }
+                }
+                
+                if (best) {
+                    unit.attackTarget = best;
+                    unit.setState(UnitState.FIGHTING);
                 }
             }
             

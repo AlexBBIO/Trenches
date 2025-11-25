@@ -394,12 +394,39 @@ class Unit {
                 this.x, this.y, this.attackRange, this.team
             );
             
-            if (enemies.length > 0) {
-                const nearest = this.findNearest(enemies);
-                if (nearest) {
-                    this.attackTarget = nearest;
-                    this.setState(UnitState.FIGHTING);
+            // Also check for enemy buildings (artillery, machine guns) in range
+            const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
+            const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
+                b.team === enemyTeam && 
+                !b.destroyed && 
+                !b.isBlueprint &&
+                b.type !== 'hq' && // Don't target HQ from idle - need to charge for that
+                Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2) <= this.attackRange
+            );
+            
+            // Find closest target (unit or building)
+            let closestTarget = null;
+            let closestDist = Infinity;
+            
+            for (const enemy of enemies) {
+                const dist = Math.sqrt((enemy.x - this.x) ** 2 + (enemy.y - this.y) ** 2);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestTarget = enemy;
                 }
+            }
+            
+            for (const building of enemyBuildings) {
+                const dist = Math.sqrt((building.x - this.x) ** 2 + (building.y - this.y) ** 2);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestTarget = building;
+                }
+            }
+            
+            if (closestTarget) {
+                this.attackTarget = closestTarget;
+                this.setState(UnitState.FIGHTING);
             }
         }
         
@@ -1094,29 +1121,76 @@ class Unit {
             }
         }
         
-        // Look for enemies
+        // Look for enemy units
         const enemies = this.game.unitManager.getEnemiesInRange(this.x, this.y, this.attackRange, this.team);
+        
+        // Also look for enemy buildings (artillery, machine guns) in attack range
+        const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
+            b.team === enemyTeam && 
+            !b.destroyed && 
+            !b.isBlueprint &&
+            b.type !== 'hq' && // HQ requires charging
+            Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2) <= this.attackRange
+        );
         
         // Check for close enemies for melee
         const meleeRange = 25;
-        let closestEnemy = null;
+        let closestTarget = null;
         let closestDist = Infinity;
+        let targetIsBuilding = false;
         
         for (const enemy of enemies) {
             const dist = this.distanceTo(enemy.x, enemy.y);
             if (dist < closestDist) {
                 closestDist = dist;
-                closestEnemy = enemy;
+                closestTarget = enemy;
+                targetIsBuilding = false;
             }
         }
         
-        // No enemies in range? Look for more or go idle
-        if (!closestEnemy) {
-            // Check if there are any enemies further away to engage
+        // Check enemy buildings - treat them as valid targets
+        for (const building of enemyBuildings) {
+            const dist = this.distanceTo(building.x, building.y);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestTarget = building;
+                targetIsBuilding = true;
+            }
+        }
+        
+        // No targets in range? Look for more or go idle
+        if (!closestTarget) {
+            // Check for any enemies further away to engage
             const farEnemies = this.game.unitManager.getEnemiesInRange(this.x, this.y, 400, this.team);
-            if (farEnemies.length > 0) {
-                // Move toward them
-                const target = this.findNearest(farEnemies);
+            // Also check for far enemy buildings
+            const farBuildings = this.game.buildingManager.buildings.filter(b => 
+                b.team === enemyTeam && 
+                !b.destroyed && 
+                !b.isBlueprint &&
+                b.type !== 'hq' &&
+                Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2) <= 400
+            );
+            
+            if (farEnemies.length > 0 || farBuildings.length > 0) {
+                // Find the closest far target
+                let target = null;
+                let minDist = Infinity;
+                
+                for (const enemy of farEnemies) {
+                    const dist = this.distanceTo(enemy.x, enemy.y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        target = enemy;
+                    }
+                }
+                for (const building of farBuildings) {
+                    const dist = this.distanceTo(building.x, building.y);
+                    if (dist < minDist) {
+                        minDist = dist;
+                        target = building;
+                    }
+                }
+                
                 if (target) {
                     this.targetX = target.x;
                     this.targetY = target.y;
@@ -1128,25 +1202,29 @@ class Unit {
             return;
         }
         
-        this.attackTarget = closestEnemy;
-        this.facing = closestEnemy.x > this.x ? 1 : -1;
+        this.attackTarget = closestTarget;
+        this.facing = closestTarget.x > this.x ? 1 : -1;
         
-        // Melee if very close
-        if (closestDist < meleeRange) {
+        // Melee if very close (only for units, not buildings)
+        if (!targetIsBuilding && closestDist < meleeRange) {
             if (this.attackCooldown <= 0) {
-                this.meleeAttack(closestEnemy);
+                this.meleeAttack(closestTarget);
                 this.attackCooldown = 0.5;
             }
         } else if (closestDist <= this.attackRange) {
             // Ranged attack
             if (this.attackCooldown <= 0) {
-                this.fire(closestEnemy);
+                if (targetIsBuilding) {
+                    this.fireAtBuilding(closestTarget);
+                } else {
+                    this.fire(closestTarget);
+                }
                 this.attackCooldown = 1 / this.attackRate;
             }
         } else {
             // Move closer
-            this.targetX = closestEnemy.x;
-            this.targetY = closestEnemy.y;
+            this.targetX = closestTarget.x;
+            this.targetY = closestTarget.y;
             this.updateMoving(dt);
         }
     }
@@ -1396,6 +1474,30 @@ class Unit {
         // Check for hit
         if (Math.random() < hitChance) {
             this.game.combatSystem.dealDamage(target, this.attackDamage, this);
+        }
+    }
+    
+    fireAtBuilding(building) {
+        // Shooting at buildings - easier to hit (they're bigger) but less damage
+        const dist = Math.sqrt((building.x - this.x) ** 2 + (building.y - this.y) ** 2);
+        const baseAccuracy = 0.85; // Easier to hit a building
+        const distancePenalty = dist / this.attackRange * 0.2;
+        const suppressionPenalty = this.suppression / 200;
+        
+        const hitChance = Math.max(0.2, baseAccuracy - distancePenalty - suppressionPenalty);
+        
+        // Muzzle flash effect
+        const angle = Math.atan2(building.y - this.y, building.x - this.x);
+        this.game.addEffect('muzzle', 
+            this.x + Math.cos(angle) * 15,
+            this.y + Math.sin(angle) * 15,
+            { size: 8, duration: 0.1 }
+        );
+        
+        // Check for hit - reduced damage against buildings (rifles aren't great vs structures)
+        if (Math.random() < hitChance) {
+            const buildingDamage = this.attackDamage * 0.3; // 30% damage vs buildings
+            this.game.buildingManager.takeDamage(building, buildingDamage);
         }
     }
     
