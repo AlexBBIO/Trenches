@@ -250,7 +250,7 @@ export class TrenchSystem {
         for (const network of this.networks) {
             for (const point of network.points) {
                 if (point.connections.length >= 3) {
-                    // T-junction or crossroad (3+ segments)
+                    // T-junction or crossroad (3+ segments) - these need hub rendering
                     this.junctions.push({
                         x: point.x,
                         y: point.y,
@@ -258,47 +258,9 @@ export class TrenchSystem {
                         connections: point.connections,
                         team: network.team
                     });
-                } else if (point.connections.length === 2) {
-                    // Check if it's an elbow (significant angle change)
-                    const conn1 = point.connections[0];
-                    const conn2 = point.connections[1];
-                    
-                    // Get direction vectors from this point to connected endpoints
-                    const dir1 = {
-                        x: conn1.end.x - point.x,
-                        y: conn1.end.y - point.y
-                    };
-                    const dir2 = {
-                        x: conn2.end.x - point.x,
-                        y: conn2.end.y - point.y
-                    };
-                    
-                    const len1 = Math.sqrt(dir1.x * dir1.x + dir1.y * dir1.y);
-                    const len2 = Math.sqrt(dir2.x * dir2.x + dir2.y * dir2.y);
-                    
-                    if (len1 > 0.1 && len2 > 0.1) {
-                        // Normalize
-                        dir1.x /= len1; dir1.y /= len1;
-                        dir2.x /= len2; dir2.y /= len2;
-                        
-                        // Calculate angle between directions
-                        const dot = dir1.x * dir2.x + dir1.y * dir2.y;
-                        const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
-                        
-                        // If angle is significant (not nearly straight), it's an elbow
-                        // Nearly straight would be dot close to -1 (180 degrees)
-                        if (dot > -0.85) { // More than ~30 degree deviation from straight
-                            this.junctions.push({
-                                x: point.x,
-                                y: point.y,
-                                type: 'elbow',
-                                angle: angle,
-                                connections: point.connections,
-                                team: network.team
-                            });
-                        }
-                    }
                 }
+                // Note: We no longer add elbows as junctions - the polygon rendering
+                // handles corners smoothly via miter joins
             }
         }
     }
@@ -1167,17 +1129,7 @@ export class TrenchSystem {
     }
     
     renderJunctionHub(ctx, junction) {
-        const maxWidth = 24; // Default trench width
-        
-        if (junction.type === 'elbow') {
-            this.renderElbowJunction(ctx, junction, maxWidth);
-        } else {
-            // T-junction or crossroad - render circular hub
-            this.renderCircularHub(ctx, junction, maxWidth);
-        }
-    }
-    
-    renderCircularHub(ctx, junction, width) {
+        const width = 24; // Default trench width
         const hubRadius = width / 2 + 2;
         
         // Shadow
@@ -1223,43 +1175,15 @@ export class TrenchSystem {
         }
     }
     
-    renderElbowJunction(ctx, junction, width) {
-        // For elbows, render a smooth curved corner patch
-        const radius = width / 2;
-        
-        // Shadow arc
-        ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.beginPath();
-        ctx.arc(junction.x + 3, junction.y + 3, radius + 5, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Parapet arc
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.beginPath();
-        ctx.arc(junction.x, junction.y, radius + 4, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Wall arc
-        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
-        ctx.beginPath();
-        ctx.arc(junction.x, junction.y, radius - 1, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Floor arc
-        ctx.fillStyle = CONFIG.COLORS.TRENCH;
-        ctx.beginPath();
-        ctx.arc(junction.x, junction.y, radius - 4, 0, Math.PI * 2);
-        ctx.fill();
-    }
-    
     // LAYER 7: Decorations - sandbags and duckboards
     renderTrenchDecorations(ctx, trench) {
         if (trench.points.length < 2) return;
         
         const width = trench.width;
         
-        // Draw sandbag details and duckboards for each segment
-        for (const segment of trench.segments) {
+        // Draw sandbag details and duckboard planks for each segment
+        for (let segIdx = 0; segIdx < trench.segments.length; segIdx++) {
+            const segment = trench.segments[segIdx];
             if (!segment.built) continue;
             
             const dx = segment.end.x - segment.start.x;
@@ -1271,12 +1195,56 @@ export class TrenchSystem {
             const nx = -dy / length;
             const ny = dx / length;
             
-            // Draw sandbag parapet details
-            this.drawSandbagParapet(ctx, segment.start, segment.end, width, length, nx, ny);
+            // Check if this is at the start/end of the trench path
+            const isFirstSegment = segIdx === 0;
+            const isLastSegment = segIdx === trench.segments.length - 1;
             
-            // Draw duckboards
-            this.drawDuckboards(ctx, segment.start, segment.end, width, length, dx, dy, nx, ny);
+            // Draw sandbag parapet details (with margin at joints)
+            this.drawSandbagParapetWithMargin(ctx, segment.start, segment.end, width, length, nx, ny, 
+                isFirstSegment, isLastSegment);
+            
+            // Draw duckboard planks (with margin at joints)
+            this.drawDuckboardPlanks(ctx, segment.start, segment.end, width, length, dx, dy, nx, ny,
+                isFirstSegment, isLastSegment);
         }
+        
+        // Draw continuous duckboard rails along entire trench
+        this.drawTrenchRails(ctx, trench);
+    }
+    
+    // Draw continuous rails along the entire trench path
+    drawTrenchRails(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width;
+        const plankWidth = width - 16;
+        const railOffset = plankWidth / 2 - 2;
+        
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        
+        // Generate rail paths using the trench outline
+        const outline = this.generateTrenchOutline(trench.points, railOffset * 2);
+        
+        if (outline.left.length < 2) return;
+        
+        // Left rail
+        ctx.beginPath();
+        ctx.moveTo(outline.left[0].x, outline.left[0].y);
+        for (let i = 1; i < outline.left.length; i++) {
+            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        }
+        ctx.stroke();
+        
+        // Right rail
+        ctx.beginPath();
+        ctx.moveTo(outline.right[0].x, outline.right[0].y);
+        for (let i = 1; i < outline.right.length; i++) {
+            ctx.lineTo(outline.right[i].x, outline.right[i].y);
+        }
+        ctx.stroke();
     }
     
     // Helper method for drawing complete trench segment (used for partial blueprint builds)
@@ -1331,15 +1299,25 @@ export class TrenchSystem {
     }
     
     drawSandbagParapet(ctx, start, end, width, length, nx, ny) {
+        this.drawSandbagParapetWithMargin(ctx, start, end, width, length, nx, ny, true, true);
+    }
+    
+    drawSandbagParapetWithMargin(ctx, start, end, width, length, nx, ny, isFirst, isLast) {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         
         // Draw sandbag details on both sides
-        const bagSpacing = 12;
-        const bagCount = Math.floor(length / bagSpacing);
+        const bagSpacing = 14; // Slightly wider spacing
+        const bagCount = Math.max(1, Math.floor(length / bagSpacing));
+        
+        // Add margin at joints to avoid overlap
+        const startMargin = isFirst ? 0.05 : 0.15;
+        const endMargin = isLast ? 0.95 : 0.85;
         
         for (let i = 0; i < bagCount; i++) {
-            const t = (i + 0.5) / bagCount;
+            const t = startMargin + (i + 0.5) / bagCount * (endMargin - startMargin);
+            if (t < startMargin || t > endMargin) continue;
+            
             const cx = start.x + dx * t;
             const cy = start.y + dy * t;
             
@@ -1363,13 +1341,23 @@ export class TrenchSystem {
     }
     
     drawDuckboards(ctx, start, end, width, length, dx, dy, nx, ny) {
-        // Wooden duckboard walkway
+        this.drawDuckboardPlanks(ctx, start, end, width, length, dx, dy, nx, ny, true, true);
+    }
+    
+    drawDuckboardPlanks(ctx, start, end, width, length, dx, dy, nx, ny, isFirst, isLast) {
+        // Wooden duckboard planks only (rails drawn separately)
         const plankWidth = width - 16;
-        const plankSpacing = 8;
-        const plankCount = Math.floor(length / plankSpacing);
+        const plankSpacing = 10;
+        const plankCount = Math.max(1, Math.floor(length / plankSpacing));
+        
+        // Add margin at joints to avoid overlap
+        const startMargin = isFirst ? 0.05 : 0.12;
+        const endMargin = isLast ? 0.95 : 0.88;
         
         for (let i = 0; i < plankCount; i++) {
-            const t = (i + 0.5) / plankCount;
+            const t = startMargin + (i + 0.5) / plankCount * (endMargin - startMargin);
+            if (t < startMargin || t > endMargin) continue;
+            
             const px = start.x + dx * t;
             const py = start.y + dy * t;
             
@@ -1399,22 +1387,6 @@ export class TrenchSystem {
             
             ctx.restore();
         }
-        
-        // Side rails for duckboards
-        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.lineWidth = 2;
-        
-        // Left rail
-        ctx.beginPath();
-        ctx.moveTo(start.x + nx * (plankWidth/2 - 2), start.y + ny * (plankWidth/2 - 2));
-        ctx.lineTo(end.x + nx * (plankWidth/2 - 2), end.y + ny * (plankWidth/2 - 2));
-        ctx.stroke();
-        
-        // Right rail
-        ctx.beginPath();
-        ctx.moveTo(start.x - nx * (plankWidth/2 - 2), start.y - ny * (plankWidth/2 - 2));
-        ctx.lineTo(end.x - nx * (plankWidth/2 - 2), end.y - ny * (plankWidth/2 - 2));
-        ctx.stroke();
     }
 }
 
