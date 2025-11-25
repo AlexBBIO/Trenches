@@ -39,9 +39,6 @@ export class TrenchSystem {
         
         this.trenches.push(trench);
         
-        // Register connections
-        this.updateConnections(trench);
-        
         // If blueprint, assign workers to build it
         if (isBlueprint) {
             this.assignWorkers(trench);
@@ -51,29 +48,8 @@ export class TrenchSystem {
     }
     
     snapTrenchPoints(points, team) {
-        if (points.length < 2) return points;
-        
-        const snapDistance = 30; // Distance to snap to existing trenches
-        const snapped = points.map(p => ({ ...p }));
-        
-        // Check first point
-        const startSnap = this.findNearestTrenchPoint(snapped[0].x, snapped[0].y, team, snapDistance);
-        if (startSnap) {
-            snapped[0] = { x: startSnap.x, y: startSnap.y };
-        }
-        
-        // Check last point
-        const endSnap = this.findNearestTrenchPoint(
-            snapped[snapped.length - 1].x, 
-            snapped[snapped.length - 1].y, 
-            team, 
-            snapDistance
-        );
-        if (endSnap) {
-            snapped[snapped.length - 1] = { x: endSnap.x, y: endSnap.y };
-        }
-        
-        return snapped;
+        // Snapping disabled - only draw trenches exactly where the user draws them
+        return points;
     }
     
     findNearestTrenchPoint(x, y, team, maxDist) {

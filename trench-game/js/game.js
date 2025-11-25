@@ -457,58 +457,99 @@ class Game {
     }
     
     orderRetreat() {
+        // Find unmanned stations that need soldiers
+        const unmannedStations = this.buildingManager.buildings.filter(b =>
+            b.team === CONFIG.TEAM_PLAYER &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.needsManning &&
+            !b.mannedBy &&
+            ['machinegun', 'artillery', 'observation_post', 'mortar'].includes(b.type)
+        );
+        
+        // Find bunkers with space
+        const availableBunkers = this.buildingManager.buildings.filter(b =>
+            b.team === CONFIG.TEAM_PLAYER &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.type === 'bunker' &&
+            b.occupants.length < b.capacity
+        );
+        
         // Find all player trenches and sort by x position
         const playerTrenches = this.trenchSystem.trenches.filter(t => 
             t.team === CONFIG.TEAM_PLAYER && !t.isBlueprint
         );
         
-        if (playerTrenches.length === 0) {
-            // No trenches - just retreat toward base
-            this.selectedUnits.forEach(unit => {
-                unit.moveTo(100, unit.y);
-                unit.setState('retreating');
-            });
-            return;
-        }
-        
-        // Get average x position of each trench
+        // Get trench positions sorted by x (forward to back)
         const trenchPositions = playerTrenches.map(trench => {
             const avgX = trench.points.reduce((sum, p) => sum + p.x, 0) / trench.points.length;
             const avgY = trench.points.reduce((sum, p) => sum + p.y, 0) / trench.points.length;
             return { trench, avgX, avgY };
         });
-        
-        // Sort by x position - forward (right) to back (left)
         trenchPositions.sort((a, b) => b.avgX - a.avgX);
         
         const forwardTrench = trenchPositions[0]; // Rightmost = forward
         const backTrench = trenchPositions[trenchPositions.length - 1]; // Leftmost = back
         
+        // Track which stations/bunkers have been assigned
+        const assignedStations = new Set();
+        const bunkerAssignments = new Map(); // bunker -> count assigned
+        
         this.selectedUnits.forEach((unit, index) => {
-            let targetTrench;
-            
             if (unit.type === 'soldier') {
-                // Soldiers go to forward-most trench for cover
-                targetTrench = forwardTrench;
+                // Priority 1: Man unmanned stations
+                let assigned = false;
+                
+                for (const station of unmannedStations) {
+                    if (!assignedStations.has(station.id)) {
+                        assignedStations.add(station.id);
+                        unit.moveTo(station.x, station.y);
+                        unit.setState('retreating');
+                        assigned = true;
+                        break;
+                    }
+                }
+                
+                if (assigned) return;
+                
+                // Priority 2: Fill bunkers
+                for (const bunker of availableBunkers) {
+                    const currentAssigned = bunkerAssignments.get(bunker.id) || 0;
+                    const spotsLeft = bunker.capacity - bunker.occupants.length - currentAssigned;
+                    if (spotsLeft > 0) {
+                        bunkerAssignments.set(bunker.id, currentAssigned + 1);
+                        unit.moveTo(bunker.x, bunker.y);
+                        unit.setState('retreating');
+                        unit.seekingBunker = bunker;
+                        assigned = true;
+                        break;
+                    }
+                }
+                
+                if (assigned) return;
+                
+                // Priority 3: Go to forward trench
+                if (forwardTrench) {
+                    const spread = (index % 5 - 2) * 20;
+                    unit.moveTo(forwardTrench.avgX, forwardTrench.avgY + spread);
+                } else {
+                    // No trenches - move toward front line
+                    unit.moveTo(CONFIG.MAP_WIDTH * 0.3, unit.y);
+                }
+                unit.setState('retreating');
+                
             } else {
                 // Workers go to back-most trench for safety
-                targetTrench = backTrench;
+                if (backTrench) {
+                    const spread = (index % 5 - 2) * 20;
+                    unit.moveTo(backTrench.avgX, backTrench.avgY + spread);
+                } else {
+                    // No trenches - retreat toward HQ
+                    unit.moveTo(100, unit.y);
+                }
+                unit.setState('retreating');
             }
-            
-            // Find a position along the target trench
-            const trenchPos = this.trenchSystem.findUnoccupiedTrenchPosition(
-                unit.x, unit.y, CONFIG.TEAM_PLAYER, unit
-            );
-            
-            if (trenchPos && trenchPos.trench === targetTrench.trench) {
-                unit.moveTo(trenchPos.x, trenchPos.y);
-            } else {
-                // Fall back to trench center with some spread
-                const spread = (index % 5 - 2) * 20;
-                unit.moveTo(targetTrench.avgX, targetTrench.avgY + spread);
-            }
-            
-            unit.setState('retreating');
         });
     }
     

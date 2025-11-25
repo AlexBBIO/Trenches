@@ -206,16 +206,20 @@ export class UI {
         }
     }
     
-    // Show the pending train status
+    // Show the pending train status (inline, form stays visible)
     showTrainPending() {
-        if (this.trainOrderForm) this.trainOrderForm.classList.add('hidden');
         if (this.trainPending) this.trainPending.classList.remove('hidden');
+    }
+    
+    // Hide the pending status (when no train is pending)
+    hideTrainPending() {
+        if (this.trainPending) this.trainPending.classList.add('hidden');
     }
     
     // Show the order form (when no train is pending)
     showTrainOrderForm() {
         if (this.trainOrderForm) this.trainOrderForm.classList.remove('hidden');
-        if (this.trainPending) this.trainPending.classList.add('hidden');
+        this.hideTrainPending();
         this.updateOrderCost();
     }
     
@@ -225,10 +229,8 @@ export class UI {
         if (!trainSystem) return;
         
         if (trainSystem.pendingOrder) {
-            // Show pending status
-            if (this.trainOrderForm && !this.trainOrderForm.classList.contains('hidden')) {
-                this.showTrainPending();
-            }
+            // Show pending status inline (form stays visible)
+            this.showTrainPending();
             
             // Update timer
             const timeLeft = Math.ceil(trainSystem.pendingOrder.arrivalTime);
@@ -236,10 +238,8 @@ export class UI {
                 this.trainTimer.textContent = `${timeLeft}s`;
             }
         } else {
-            // No pending order, show the form
-            if (this.trainPending && !this.trainPending.classList.contains('hidden')) {
-                this.showTrainOrderForm();
-            }
+            // No pending order, hide the timer
+            this.hideTrainPending();
             
             // Auto-call train if enabled and we can afford it
             this.checkAutoCallTrain();
