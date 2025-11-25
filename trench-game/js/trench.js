@@ -1112,9 +1112,7 @@ export class TrenchSystem {
     
     // LAYER 6: Render junction hubs where multiple trenches meet
     renderJunctions(ctx) {
-        for (const junction of this.junctions) {
-            this.renderJunctionHub(ctx, junction);
-        }
+        // Junction hubs disabled for cleaner look - trenches blend naturally
     }
     
     renderJunctionHub(ctx, junction) {
