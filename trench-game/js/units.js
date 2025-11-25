@@ -497,22 +497,15 @@ class Unit {
         }
     }
     
-    // Find shell hauling task - artillery that needs ammo
+    // Find shell hauling task - artillery that needs ammo (respects claims)
     findShellHaulingTask() {
         // Check if there are shells to haul
         if (this.game.resources.shells <= 0) return null;
         
-        // Find artillery that needs ammo and isn't being resupplied
-        const workersHauling = this.game.unitManager.units.filter(u => 
-            u.type === 'worker' && 
-            u.task && 
-            u.task.type === 'haul_shells' &&
-            u.task.targetArtillery
-        ).map(u => u.task.targetArtillery.id);
-        
+        // Find artillery that needs ammo - pass worker ID for claiming
         const artillery = this.game.buildingManager.findArtilleryNeedingResupply(
             this.team, 
-            workersHauling
+            this.id
         );
         
         if (artillery) {
@@ -522,7 +515,7 @@ class Unit {
         return null;
     }
     
-    // Assign shell hauling task
+    // Assign shell hauling task (claims the artillery to prevent bunching)
     assignShellHaulingTask(shellTask) {
         const hq = this.game.buildingManager.getHQ(this.team);
         if (!hq) return;
@@ -534,30 +527,35 @@ class Unit {
             hq: hq
         };
         
+        // Claim the artillery for resupply
+        this.game.buildingManager.claimArtillery(shellTask.artillery.id, this.id);
+        
         // Go to HQ first to pick up shells
         this.targetX = hq.x;
         this.targetY = hq.y;
         this.setState(UnitState.MOVING);
     }
     
-    // Find repair tasks for workers
+    // Find repair tasks for workers (respects claims to avoid bunching)
     findRepairTask() {
-        // Check for damaged buildings first (higher priority)
-        let repairTarget = this.game.buildingManager.findDamagedStructure(this.x, this.y, this.team);
+        // Check for damaged buildings first (higher priority) - pass worker ID for claiming
+        let repairTarget = this.game.buildingManager.findDamagedStructure(this.x, this.y, this.team, this.id);
         if (repairTarget) return repairTarget;
         
-        // Check for damaged trenches
-        repairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team);
+        // Check for damaged trenches - pass worker ID for claiming
+        repairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team, this.id);
         return repairTarget;
     }
     
-    // Assign a repair task to this worker
+    // Assign a repair task to this worker (claims the target to prevent bunching)
     assignRepairTask(repairTarget) {
         if (repairTarget.type === 'building') {
             this.assignTask({
                 type: 'repair_building',
                 building: repairTarget.target
             });
+            // Claim the building for repair
+            this.game.buildingManager.claimRepair(repairTarget.target.id, this.id);
         } else if (repairTarget.type === 'trench' || repairTarget.type === 'trench_rebuild') {
             this.assignTask({
                 type: 'repair_trench',
@@ -565,6 +563,8 @@ class Unit {
                 segmentIndex: repairTarget.segmentIndex,
                 isRebuild: repairTarget.type === 'trench_rebuild'
             });
+            // Claim the trench segment for repair
+            this.game.trenchSystem.claimTrenchRepair(repairTarget.target.id, repairTarget.segmentIndex, this.id);
         }
         
         this.targetX = repairTarget.x;
@@ -825,6 +825,8 @@ class Unit {
         } else if (this.task.type === 'haul_shells') {
             // Check if artillery still exists
             if (this.task.targetArtillery && this.task.targetArtillery.destroyed) {
+                // Unclaim the artillery
+                this.game.buildingManager.unclaimArtillery(this.task.targetArtillery.id);
                 // Return any shells we're carrying
                 if (this.shellsCarrying > 0) {
                     this.game.resources.shells += this.shellsCarrying;
@@ -956,6 +958,8 @@ class Unit {
             const completed = this.game.buildingManager.repairBuilding(building, this.buildSpeed * dt * 0.5);
             
             if (completed) {
+                // Unclaim the repair
+                this.game.buildingManager.unclaimRepair(building.id);
                 this.clearTask();
                 this.setState(UnitState.IDLE);
             }
@@ -967,14 +971,19 @@ class Unit {
             const completed = this.game.trenchSystem.repairTrenchSegment(trench, segIdx, this.buildSpeed * dt * 0.5);
             
             if (completed) {
-                // Check if there are more segments to repair on this trench
-                const nextRepairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team);
+                // Unclaim the completed segment
+                this.game.trenchSystem.unclaimTrenchRepair(trench.id, segIdx);
+                
+                // Check if there are more segments to repair on this trench (pass worker ID for claiming)
+                const nextRepairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team, this.id);
                 
                 if (nextRepairTarget && nextRepairTarget.target === trench) {
                     this.task.segmentIndex = nextRepairTarget.segmentIndex;
                     this.task.isRebuild = nextRepairTarget.type === 'trench_rebuild';
                     this.targetX = nextRepairTarget.x;
                     this.targetY = nextRepairTarget.y;
+                    // Claim the new segment
+                    this.game.trenchSystem.claimTrenchRepair(trench.id, nextRepairTarget.segmentIndex, this.id);
                     this.setState(UnitState.MOVING);
                 } else {
                     this.clearTask();
@@ -1037,6 +1046,8 @@ class Unit {
             // Check if artillery still exists and needs ammo
             if (task.targetArtillery.destroyed || 
                 task.targetArtillery.ammoCount >= task.targetArtillery.maxAmmo) {
+                // Unclaim the artillery
+                this.game.buildingManager.unclaimArtillery(task.targetArtillery.id);
                 // Return shells to stockpile and find new task
                 this.game.resources.shells += this.shellsCarrying;
                 this.shellsCarrying = 0;
@@ -1076,6 +1087,9 @@ class Unit {
                 
                 task.targetArtillery.ammoCount += shellsToDeliver;
                 this.shellsCarrying -= shellsToDeliver;
+                
+                // Unclaim the artillery we just resupplied
+                this.game.buildingManager.unclaimArtillery(task.targetArtillery.id);
                 
                 // If we have leftover shells and artillery isn't full, return to idle
                 // Otherwise continue to next artillery or go back to HQ

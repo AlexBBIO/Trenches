@@ -7,6 +7,7 @@ export class TrenchSystem {
         this.trenches = [];
         this.trenchIdCounter = 0;
         this.claimedSegments = new Map(); // Map of "trenchId-segIdx" -> workerId
+        this.claimedTrenchRepairs = new Map(); // Map of "trenchId-segIdx" -> workerId (for repair tasks)
         this.networks = []; // Networks of connected trenches
         this.junctions = []; // Junction points where trenches meet
     }
@@ -582,6 +583,11 @@ export class TrenchSystem {
                 this.claimedSegments.delete(key);
             }
         }
+        for (const [key, id] of this.claimedTrenchRepairs.entries()) {
+            if (id === workerId) {
+                this.claimedTrenchRepairs.delete(key);
+            }
+        }
     }
     
     isInTrench(x, y, team = null) {
@@ -831,8 +837,8 @@ export class TrenchSystem {
         }
     }
     
-    // Find damaged trench segments for repair
-    findDamagedTrench(x, y, team) {
+    // Find damaged trench segments for repair (respects claims)
+    findDamagedTrench(x, y, team, workerId = null) {
         let nearest = null;
         let minDist = Infinity;
         
@@ -842,6 +848,11 @@ export class TrenchSystem {
             for (let i = 0; i < trench.segments.length; i++) {
                 const seg = trench.segments[i];
                 if (!seg.damaged && !seg.destroyed) continue;
+                
+                // Check if claimed by another worker
+                const claimKey = `${trench.id}-${i}`;
+                const claimedBy = this.claimedTrenchRepairs.get(claimKey);
+                if (claimedBy && claimedBy !== workerId) continue;
                 
                 const midX = (seg.start.x + seg.end.x) / 2;
                 const midY = (seg.start.y + seg.end.y) / 2;
@@ -861,6 +872,18 @@ export class TrenchSystem {
         }
         
         return nearest;
+    }
+    
+    // Claim a trench segment for repair
+    claimTrenchRepair(trenchId, segmentIndex, workerId) {
+        const claimKey = `${trenchId}-${segmentIndex}`;
+        this.claimedTrenchRepairs.set(claimKey, workerId);
+    }
+    
+    // Unclaim a trench repair
+    unclaimTrenchRepair(trenchId, segmentIndex) {
+        const claimKey = `${trenchId}-${segmentIndex}`;
+        this.claimedTrenchRepairs.delete(claimKey);
     }
     
     // Repair a damaged trench segment

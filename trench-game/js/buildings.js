@@ -9,6 +9,8 @@ export class BuildingManager {
         this.buildingIdCounter = 0;
         this.claimedBuildings = new Map(); // buildingId -> workerId
         this.claimedWireSegments = new Map(); // "wireId-segIdx" -> workerId
+        this.claimedRepairs = new Map(); // buildingId -> workerId (for repair tasks)
+        this.claimedArtillery = new Map(); // artilleryId -> workerId (for shell hauling)
         this.buildingConnections = new Map(); // buildingId -> { trenchPoint, trench }
         this.connectionRange = 45; // Max range for building-trench connections (must be close)
     }
@@ -214,14 +216,28 @@ export class BuildingManager {
     }
     
     // Get the artillery with lowest ammo that isn't being resupplied
-    findArtilleryNeedingResupply(team, excludeIds = []) {
+    findArtilleryNeedingResupply(team, workerId = null) {
         const artillery = this.getArtilleryNeedingAmmo(team);
         for (const art of artillery) {
-            if (!excludeIds.includes(art.id) && art.ammoCount < art.maxAmmo * 0.7) {
+            // Check if claimed by another worker
+            const claimedBy = this.claimedArtillery.get(art.id);
+            if (claimedBy && claimedBy !== workerId) continue;
+            
+            if (art.ammoCount < art.maxAmmo * 0.7) {
                 return art;
             }
         }
         return null;
+    }
+    
+    // Claim artillery for resupply
+    claimArtillery(artilleryId, workerId) {
+        this.claimedArtillery.set(artilleryId, workerId);
+    }
+    
+    // Unclaim artillery
+    unclaimArtillery(artilleryId) {
+        this.claimedArtillery.delete(artilleryId);
     }
     
     findNearestBuildSite(x, y, team, workerId = null) {
@@ -307,6 +323,16 @@ export class BuildingManager {
                 this.claimedWireSegments.delete(key);
             }
         }
+        for (const [id, wid] of this.claimedRepairs.entries()) {
+            if (wid === workerId) {
+                this.claimedRepairs.delete(id);
+            }
+        }
+        for (const [id, wid] of this.claimedArtillery.entries()) {
+            if (wid === workerId) {
+                this.claimedArtillery.delete(id);
+            }
+        }
     }
     
     buildBuilding(building, amount) {
@@ -380,14 +406,18 @@ export class BuildingManager {
         return true;
     }
     
-    // Find damaged structures for repair
-    findDamagedStructure(x, y, team) {
+    // Find damaged structures for repair (respects claims)
+    findDamagedStructure(x, y, team, workerId = null) {
         let nearest = null;
         let minDist = Infinity;
         
         for (const building of this.buildings) {
             if (building.team !== team || building.destroyed || building.isBlueprint) continue;
             if (building.health >= building.maxHealth) continue;
+            
+            // Check if claimed by another worker
+            const claimedBy = this.claimedRepairs.get(building.id);
+            if (claimedBy && claimedBy !== workerId) continue;
             
             const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
             if (dist < minDist) {
@@ -402,6 +432,16 @@ export class BuildingManager {
         }
         
         return nearest;
+    }
+    
+    // Claim a building for repair
+    claimRepair(buildingId, workerId) {
+        this.claimedRepairs.set(buildingId, workerId);
+    }
+    
+    // Unclaim a repair
+    unclaimRepair(buildingId) {
+        this.claimedRepairs.delete(buildingId);
     }
     
     // Repair a damaged building
