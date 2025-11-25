@@ -910,11 +910,12 @@ export class TrenchSystem {
         const blueprintTrenches = this.trenches.filter(t => t.isBlueprint);
         const completedTrenches = this.trenches.filter(t => !t.isBlueprint);
         
-        // Filter out enemy trenches that are not currently visible (fog of war)
+        // Filter out enemy trenches that are not currently visible (fog of war) (DISABLED - Full visibility)
         const visibleCompletedTrenches = completedTrenches.filter(trench => {
             // Player trenches are always visible
             if (trench.team === CONFIG.TEAM_PLAYER) return true;
-            // Enemy trenches only visible if currently in vision
+            // Enemy trenches only visible if currently in vision (DISABLED)
+            /*
             if (renderer && trench.points.length > 0) {
                 // Check if any point of the trench is visible
                 for (const point of trench.points) {
@@ -925,6 +926,8 @@ export class TrenchSystem {
             }
             // No renderer, no points, or no visible points - hide enemy trench
             return false;
+            */
+            return true; // Always visible
         });
         
         // LAYER 1: Render all blueprint trenches first (dashed, underneath)

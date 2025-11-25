@@ -105,10 +105,12 @@ export class UnitManager {
             const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
             if (dist > range) return false;
             
-            // For player team, check if enemy is visible in fog of war
+            // For player team, check if enemy is visible in fog of war (DISABLED - Full visibility)
+            /*
             if (myTeam === CONFIG.TEAM_PLAYER && renderer) {
                 return renderer.isPositionVisible(unit.x, unit.y);
             }
+            */
             
             return true;
         });
@@ -155,12 +157,14 @@ export class UnitManager {
         const sortedUnits = [...this.units].sort((a, b) => a.y - b.y);
         
         for (const unit of sortedUnits) {
-            // Hide enemy units in fog of war
+            // Hide enemy units in fog of war (DISABLED - Full visibility)
+            /*
             if (renderer && unit.team === CONFIG.TEAM_ENEMY) {
                 if (!renderer.isPositionVisible(unit.x, unit.y)) {
                     continue; // Don't render enemies in fog
                 }
             }
+            */
             unit.render(ctx);
         }
     }
@@ -480,10 +484,12 @@ class Unit {
                 if (b.type === 'hq') return false; // Don't target HQ from idle - need to charge for that
                 const dist = Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2);
                 if (dist > this.attackRange) return false;
-                // Player units respect fog of war
+                // Player units respect fog of war (DISABLED)
+                /*
                 if (this.team === CONFIG.TEAM_PLAYER && renderer) {
                     return renderer.isPositionVisible(b.x, b.y);
                 }
+                */
                 return true;
             });
             
@@ -1265,10 +1271,12 @@ class Unit {
             if (b.type === 'hq') return false; // HQ requires charging
             const dist = Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2);
             if (dist > this.attackRange) return false;
-            // Player units respect fog of war
+            // Player units respect fog of war (DISABLED)
+            /*
             if (this.team === CONFIG.TEAM_PLAYER && renderer) {
                 return renderer.isPositionVisible(b.x, b.y);
             }
+            */
             return true;
         });
         

@@ -1098,24 +1098,28 @@ export class BuildingManager {
         // Render barbed wire lines
         for (const wire of this.barbedWireLines) {
             if (wire.destroyed) continue;
-            // Hide enemy wire in fog - only show if currently visible
+            // Hide enemy wire in fog - only show if currently visible (DISABLED - Full visibility)
+            /*
             if (renderer && wire.team === CONFIG.TEAM_ENEMY) {
                 const midX = wire.points.length > 0 ? wire.points[0].x : 0;
                 const midY = wire.points.length > 0 ? wire.points[0].y : 0;
                 if (!renderer.isPositionVisible(midX, midY)) continue;
             }
+            */
             this.renderBarbedWireLine(ctx, wire);
         }
         
         // Render buildings - sort by y for proper overlap
         const sortedBuildings = [...this.buildings].sort((a, b) => a.y - b.y);
         for (const building of sortedBuildings) {
-            // Hide enemy buildings in fog of war (except HQ which is always visible)
+            // Hide enemy buildings in fog of war (except HQ which is always visible) (DISABLED - Full visibility)
+            /*
             if (renderer && building.team === CONFIG.TEAM_ENEMY && building.type !== 'hq') {
                 if (!renderer.isPositionVisible(building.x, building.y)) {
                     continue; // Don't render enemy buildings not currently visible
                 }
             }
+            */
             
             if (building.destroyed) {
                 this.renderDestroyed(ctx, building);
