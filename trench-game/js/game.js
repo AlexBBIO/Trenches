@@ -42,31 +42,74 @@ export const CONFIG = {
     COST_ARTILLERY: 50,
     COST_BARBED_WIRE: 10,
     
-    // Colors - Dark WW1 Cannon Fodder style
+    // Colors - WWI Cannon Fodder style palette
     COLORS: {
-        GRASS_1: '#6b7b3a',        // Olive drab base
-        GRASS_2: '#7a8b4a',        // Lighter olive
-        GRASS_3: '#5a6b2a',        // Darker olive
-        GRASS_4: '#8b9b5a',        // Yellow-green highlight
-        MUD: '#5a4a2a',            // Dark brown mud
-        MUD_DARK: '#3a2a1a',       // Very dark mud
-        MUD_LIGHT: '#7a6a4a',      // Lighter mud
-        WATER: '#2a3a4a',          // Dark murky water
+        // Terrain
+        GRASS_1: '#5b6b2a',        // Dark olive drab base
+        GRASS_2: '#6a7a3a',        // Medium olive
+        GRASS_3: '#4a5a1a',        // Darker olive
+        GRASS_4: '#7a8a4a',        // Yellow-green highlight
+        GRASS_DEAD: '#5a5030',     // Dead grass patches
+        MUD: '#4a3a20',            // Dark brown mud
+        MUD_DARK: '#2a1a0a',       // Very dark mud (craters)
+        MUD_LIGHT: '#6a5a3a',      // Lighter mud
+        MUD_WET: '#3a2a15',        // Wet mud
+        WATER: '#1a2a35',          // Dark murky water
+        WATER_LIGHT: '#2a3a45',    // Murky water highlight
+        
+        // Structures
         SANDBAG: '#8a7a5a',        // Khaki sandbags
-        TRENCH: '#2a2a1a',         // Dark trench interior
-        PLAYER_BODY: '#4a6a3a',    // Olive drab uniform
-        PLAYER_SKIN: '#daa870',    // Skin tone
-        ENEMY_BODY: '#6a5a4a',     // Grey-brown enemy
-        ENEMY_SKIN: '#daa870',     // Skin tone  
-        SELECTION: '#ffff88',      // Yellow selection arrow
-        BLOOD: '#8a0000',          // Dark blood
-        MUZZLE_FLASH: '#ffaa44',   // Orange flash
+        SANDBAG_DARK: '#6a5a3a',   // Shaded sandbags
+        TRENCH: '#1a1a0a',         // Dark trench interior
+        TRENCH_WALL: '#3a3020',    // Trench walls
+        DUCKBOARD: '#4a3a20',      // Wooden planks
+        
+        // Units - Player (British style)
+        PLAYER_BODY: '#4a6030',    // Khaki uniform
+        PLAYER_BODY_DARK: '#3a5020', // Darker uniform
+        PLAYER_SKIN: '#d8a070',    // Skin tone
+        PLAYER_HELMET: '#4a5a3a',  // Brodie helmet
+        PLAYER_WEBBING: '#5a5030', // Equipment
+        
+        // Units - Enemy (German style)
+        ENEMY_BODY: '#5a5a4a',     // Field grey uniform
+        ENEMY_BODY_DARK: '#4a4a3a',
+        ENEMY_SKIN: '#d8a070',     // Skin tone
+        ENEMY_HELMET: '#4a4a40',   // Stahlhelm grey
+        
+        // Selection & UI
+        SELECTION: '#ffdd44',      // Cannon Fodder yellow arrow
+        SELECTION_GLOW: '#ffaa00', // Arrow glow
+        
+        // Combat effects
+        BLOOD: '#6a0000',          // Dark blood
+        BLOOD_BRIGHT: '#8a1010',   // Fresh blood
+        BLOOD_POOL: '#3a0000',     // Dried blood
+        MUZZLE_FLASH: '#ffcc44',   // Bright yellow flash
+        MUZZLE_CORE: '#ffffff',    // White hot center
         EXPLOSION: '#ff6622',      // Fire orange
-        BARBED_WIRE: '#4a4a4a',
-        SHADOW: '#1a1a0a',
-        TREE_TRUNK: '#3a2a1a',
-        TREE_LEAVES: '#5a4a2a',    // Brown-ish leaves (autumn)
-        TREE_LEAVES_LIGHT: '#7a5a3a'
+        EXPLOSION_DARK: '#aa3300', // Dark fire
+        EXPLOSION_SMOKE: '#3a3020',// Smoke
+        TRACER: '#ffee88',         // Bullet tracer
+        
+        // Environment
+        BARBED_WIRE: '#3a3a3a',
+        BARBED_WIRE_RUST: '#5a4a3a',
+        SHADOW: '#0a0a05',
+        FOG: 'rgba(60, 55, 45, 0.15)',
+        
+        // Trees & vegetation
+        TREE_TRUNK: '#2a1a0a',
+        TREE_TRUNK_LIGHT: '#3a2a15',
+        TREE_DEAD: '#3a3020',      // Dead tree
+        TREE_LEAVES: '#4a4020',    // Brown autumn leaves
+        TREE_LEAVES_LIGHT: '#5a5030',
+        
+        // Debris & details
+        DEBRIS: '#3a3020',
+        DEBRIS_DARK: '#2a2010',
+        RUST: '#5a3a20',
+        METAL: '#4a4a4a'
     }
 };
 
