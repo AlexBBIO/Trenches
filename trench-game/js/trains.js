@@ -9,7 +9,7 @@ export const TRAIN_COSTS = {
 };
 
 // Time for ordered train to arrive (in seconds)
-export const TRAIN_ARRIVAL_TIME = 60;
+export const TRAIN_ARRIVAL_TIME = 30;
 
 export class TrainSystem {
     constructor(game) {
