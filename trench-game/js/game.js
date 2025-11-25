@@ -34,7 +34,7 @@ export const CONFIG = {
     // Combat settings
     RIFLE_RANGE: 200,
     MG_RANGE: 350,
-    ARTILLERY_RANGE: 600,
+    ARTILLERY_RANGE: 1800, // Artillery can shoot across the entire map
     
     // Build costs
     COST_TRENCH_PER_UNIT: 1,

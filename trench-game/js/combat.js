@@ -58,16 +58,47 @@ export class CombatSystem {
     }
     
     dealDamage(target, amount, source) {
-        if (!target || target.state === UnitState.DEAD) return;
+        if (!target) return;
         
         // Check if target is a unit or building
         if (target.takeDamage) {
-            // Unit
+            // Unit - check if dead
+            if (target.state === UnitState.DEAD) return;
             target.takeDamage(amount, source);
-        } else if (target.health !== undefined) {
+        } else if (target.health !== undefined && !target.destroyed) {
             // Building
-            this.game.buildingManager.takeDamage(target, amount);
+            this.game.buildingManager.damageBuilding(target, amount);
         }
+    }
+    
+    // Calculate damage to structures (trenches, buildings) in an area
+    dealAreaDamage(x, y, radius, damage, source) {
+        // Damage units
+        const allUnits = this.game.unitManager.units;
+        for (const unit of allUnits) {
+            if (unit.state === UnitState.DEAD) continue;
+            
+            const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
+            if (dist < radius) {
+                const falloff = 1 - (dist / radius);
+                const actualDamage = damage * falloff;
+                this.dealDamage(unit, actualDamage, source);
+            }
+        }
+        
+        // Damage buildings
+        for (const building of this.game.buildingManager.buildings) {
+            if (building.destroyed) continue;
+            
+            const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
+            if (dist < radius) {
+                const falloff = 1 - (dist / radius);
+                this.game.buildingManager.damageBuilding(building, damage * falloff * 0.5);
+            }
+        }
+        
+        // Damage trenches
+        this.game.trenchSystem.damageTrenchesAtPoint(x, y, radius, damage * 0.3);
     }
     
     // Calculate morale effects

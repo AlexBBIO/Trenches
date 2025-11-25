@@ -166,6 +166,7 @@ class Unit {
         this.targetY = this.y;
         this.velocity = { x: 0, y: 0 };
         this.facing = config.team === CONFIG.TEAM_PLAYER ? 1 : -1; // 1 = right, -1 = left
+        this.trenchWaypoint = null; // For trench-preferring pathfinding
         
         // Combat
         this.attackCooldown = 0;
@@ -381,9 +382,16 @@ class Unit {
             }
         }
         
-        // Workers: Look for build tasks
+        // Workers: Look for tasks (repair first, then build)
         if (this.type === 'worker' && !this.task) {
-            // First check for trench building (pass worker ID to respect claims)
+            // PRIORITY 1: Check for damaged structures to repair
+            let repairTarget = this.findRepairTask();
+            if (repairTarget) {
+                this.assignRepairTask(repairTarget);
+                return;
+            }
+            
+            // PRIORITY 2: Check for trench building (pass worker ID to respect claims)
             let buildSite = this.game.trenchSystem.findNearestBuildSite(this.x, this.y, this.team, this.id);
             
             if (buildSite) {
@@ -401,7 +409,7 @@ class Unit {
                 return;
             }
             
-            // Then check for emplacement/wire building (pass worker ID to respect claims)
+            // PRIORITY 3: Check for emplacement/wire building (pass worker ID to respect claims)
             buildSite = this.game.buildingManager.findNearestBuildSite(this.x, this.y, this.team, this.id);
             
             if (buildSite) {
@@ -431,6 +439,38 @@ class Unit {
         }
     }
     
+    // Find repair tasks for workers
+    findRepairTask() {
+        // Check for damaged buildings first (higher priority)
+        let repairTarget = this.game.buildingManager.findDamagedStructure(this.x, this.y, this.team);
+        if (repairTarget) return repairTarget;
+        
+        // Check for damaged trenches
+        repairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team);
+        return repairTarget;
+    }
+    
+    // Assign a repair task to this worker
+    assignRepairTask(repairTarget) {
+        if (repairTarget.type === 'building') {
+            this.assignTask({
+                type: 'repair_building',
+                building: repairTarget.target
+            });
+        } else if (repairTarget.type === 'trench' || repairTarget.type === 'trench_rebuild') {
+            this.assignTask({
+                type: 'repair_trench',
+                trench: repairTarget.target,
+                segmentIndex: repairTarget.segmentIndex,
+                isRebuild: repairTarget.type === 'trench_rebuild'
+            });
+        }
+        
+        this.targetX = repairTarget.x;
+        this.targetY = repairTarget.y;
+        this.setState(UnitState.MOVING);
+    }
+    
     updateMoving(dt) {
         const dx = this.targetX - this.x;
         const dy = this.targetY - this.y;
@@ -445,6 +485,9 @@ class Unit {
                 this.x = this.targetX;
                 this.y = this.targetY;
             }
+            
+            // Clear waypoint when arrived
+            this.trenchWaypoint = null;
             
             if (this.task) {
                 // Verify the task is still valid before starting work
@@ -472,7 +515,9 @@ class Unit {
                 
                 if (this.task.type === 'build_trench' || 
                     this.task.type === 'build_emplacement' || 
-                    this.task.type === 'build_wire') {
+                    this.task.type === 'build_wire' ||
+                    this.task.type === 'repair_building' ||
+                    this.task.type === 'repair_trench') {
                     this.setState(UnitState.WORKING);
                     return;
                 }
@@ -486,10 +531,35 @@ class Unit {
             return;
         }
         
-        // Move toward target
-        const moveSpeed = this.speed * (1 - this.suppression / 200);
-        const vx = (dx / dist) * moveSpeed;
-        const vy = (dy / dist) * moveSpeed;
+        // Check if we should use trench pathfinding (workers and soldiers prefer trenches)
+        let moveTargetX = this.targetX;
+        let moveTargetY = this.targetY;
+        
+        // Only use trench pathfinding if not charging
+        if (this.state !== UnitState.CHARGING) {
+            const waypoint = this.getTrenchWaypoint();
+            if (waypoint) {
+                moveTargetX = waypoint.x;
+                moveTargetY = waypoint.y;
+            }
+        }
+        
+        // Calculate movement direction
+        const mdx = moveTargetX - this.x;
+        const mdy = moveTargetY - this.y;
+        const mdist = Math.sqrt(mdx * mdx + mdy * mdy);
+        
+        // Move toward target/waypoint
+        let moveSpeed = this.speed * (1 - this.suppression / 200);
+        
+        // Speed bonus when moving in trenches (for protection)
+        const inTrench = this.game.trenchSystem.isInTrench(this.x, this.y, this.team);
+        if (inTrench) {
+            moveSpeed *= 1.15; // 15% speed bonus in trenches
+        }
+        
+        const vx = (mdx / mdist) * moveSpeed;
+        const vy = (mdy / mdist) * moveSpeed;
         
         this.x += vx * dt;
         this.y += vy * dt;
@@ -504,13 +574,121 @@ class Unit {
         this.y = Math.max(20, Math.min(CONFIG.MAP_HEIGHT - 20, this.y));
     }
     
+    // Get next waypoint along trench path (prefers trenches for protection)
+    getTrenchWaypoint() {
+        // Don't use trench pathing for charging units or if already at waypoint
+        if (this.state === UnitState.CHARGING) return null;
+        
+        // Check if we have a current waypoint
+        if (this.trenchWaypoint) {
+            const waypointDist = Math.sqrt(
+                (this.x - this.trenchWaypoint.x) ** 2 + 
+                (this.y - this.trenchWaypoint.y) ** 2
+            );
+            
+            // If we've reached the waypoint, clear it
+            if (waypointDist < 15) {
+                this.trenchWaypoint = null;
+            } else {
+                return this.trenchWaypoint;
+            }
+        }
+        
+        // Check if we're currently in a trench
+        const currentTrench = this.game.trenchSystem.isInTrench(this.x, this.y, this.team);
+        
+        // Check if target is in a trench
+        const targetTrench = this.game.trenchSystem.isInTrench(this.targetX, this.targetY, this.team);
+        
+        // If we're already in a trench and target is also in trench (or near trench), 
+        // find the best path along the trench
+        if (currentTrench) {
+            // Try to find connected path along trenches
+            const nextPoint = this.findNextTrenchPoint(currentTrench);
+            if (nextPoint) {
+                this.trenchWaypoint = nextPoint;
+                return nextPoint;
+            }
+        }
+        
+        // If not in trench but there's a nearby friendly trench between us and target,
+        // route through it
+        if (!currentTrench) {
+            const nearbyTrench = this.game.trenchSystem.findNearestTrench(this.x, this.y, this.team);
+            if (nearbyTrench) {
+                const distToTrench = Math.sqrt(
+                    (this.x - nearbyTrench.x) ** 2 + 
+                    (this.y - nearbyTrench.y) ** 2
+                );
+                
+                const distToTarget = Math.sqrt(
+                    (this.x - this.targetX) ** 2 + 
+                    (this.y - this.targetY) ** 2
+                );
+                
+                // Only use trench routing if it's reasonably close and the target is far
+                if (distToTrench < 100 && distToTarget > 150) {
+                    // Check if trench is roughly on the way
+                    const angleToTarget = Math.atan2(this.targetY - this.y, this.targetX - this.x);
+                    const angleToTrench = Math.atan2(nearbyTrench.y - this.y, nearbyTrench.x - this.x);
+                    const angleDiff = Math.abs(angleToTarget - angleToTrench);
+                    
+                    // Only route through trench if it's within 90 degrees of our target direction
+                    if (angleDiff < Math.PI / 2 || angleDiff > Math.PI * 1.5) {
+                        this.trenchWaypoint = { x: nearbyTrench.x, y: nearbyTrench.y };
+                        return this.trenchWaypoint;
+                    }
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    // Find the next point along a trench toward our target
+    findNextTrenchPoint(trench) {
+        // Find which point in the trench is closest to our target
+        let bestPoint = null;
+        let bestDist = Infinity;
+        
+        for (const segment of trench.segments) {
+            if (!segment.built || segment.destroyed) continue;
+            
+            // Check both endpoints
+            for (const point of [segment.start, segment.end]) {
+                const distToTarget = Math.sqrt(
+                    (point.x - this.targetX) ** 2 + 
+                    (point.y - this.targetY) ** 2
+                );
+                
+                // Make sure this point is closer to target than we are
+                const ourDistToTarget = Math.sqrt(
+                    (this.x - this.targetX) ** 2 + 
+                    (this.y - this.targetY) ** 2
+                );
+                
+                if (distToTarget < ourDistToTarget && distToTarget < bestDist) {
+                    bestDist = distToTarget;
+                    bestPoint = { x: point.x, y: point.y };
+                }
+            }
+        }
+        
+        // If the best point is very close to target, just go directly
+        if (bestPoint && bestDist < 30) {
+            return null;
+        }
+        
+        return bestPoint;
+    }
+    
     updateWorking(dt) {
         if (!this.task) {
             this.setState(UnitState.IDLE);
             return;
         }
         
-        // Safety check - verify task target still exists and needs building
+        // Safety check - verify task target still exists and needs building/repairing
         if (this.task.type === 'build_emplacement') {
             if (!this.task.building || this.task.building.destroyed || !this.task.building.isBlueprint) {
                 this.clearTask();
@@ -525,6 +703,19 @@ class Unit {
             }
         } else if (this.task.type === 'build_trench') {
             if (!this.task.trench || !this.task.trench.isBlueprint) {
+                this.clearTask();
+                this.setState(UnitState.IDLE);
+                return;
+            }
+        } else if (this.task.type === 'repair_building') {
+            if (!this.task.building || this.task.building.destroyed || this.task.building.health >= this.task.building.maxHealth) {
+                this.clearTask();
+                this.setState(UnitState.IDLE);
+                return;
+            }
+        } else if (this.task.type === 'repair_trench') {
+            const segment = this.task.trench.segments[this.task.segmentIndex];
+            if (!segment || (!segment.damaged && !segment.destroyed)) {
                 this.clearTask();
                 this.setState(UnitState.IDLE);
                 return;
@@ -620,6 +811,46 @@ class Unit {
                         this.clearTask();
                         this.setState(UnitState.IDLE);
                     }
+                }
+            }
+        } else if (this.task.type === 'repair_building') {
+            // Repair a damaged building
+            const building = this.task.building;
+            
+            // Add sparks effect for repair
+            if (Math.random() < dt * 8) {
+                this.game.addEffect('muzzle', this.x + (Math.random() - 0.5) * 15, this.y - 5, {
+                    size: 4 + Math.random() * 4,
+                    duration: 0.15
+                });
+            }
+            
+            const completed = this.game.buildingManager.repairBuilding(building, this.buildSpeed * dt * 0.5);
+            
+            if (completed) {
+                this.clearTask();
+                this.setState(UnitState.IDLE);
+            }
+        } else if (this.task.type === 'repair_trench') {
+            // Repair a damaged trench segment
+            const trench = this.task.trench;
+            const segIdx = this.task.segmentIndex;
+            
+            const completed = this.game.trenchSystem.repairTrenchSegment(trench, segIdx, this.buildSpeed * dt * 0.5);
+            
+            if (completed) {
+                // Check if there are more segments to repair on this trench
+                const nextRepairTarget = this.game.trenchSystem.findDamagedTrench(this.x, this.y, this.team);
+                
+                if (nextRepairTarget && nextRepairTarget.target === trench) {
+                    this.task.segmentIndex = nextRepairTarget.segmentIndex;
+                    this.task.isRebuild = nextRepairTarget.type === 'trench_rebuild';
+                    this.targetX = nextRepairTarget.x;
+                    this.targetY = nextRepairTarget.y;
+                    this.setState(UnitState.MOVING);
+                } else {
+                    this.clearTask();
+                    this.setState(UnitState.IDLE);
                 }
             }
         }
