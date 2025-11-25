@@ -66,8 +66,7 @@ export class Input {
             this.mouseDown = true;
             this.handleLeftClick();
         } else if (e.button === 1) { // Middle click
-            this.isPanning = true;
-            this.panStart = { x: e.clientX, y: e.clientY };
+            // Middle mouse panning disabled - use WASD for camera movement
             e.preventDefault();
         } else if (e.button === 2) { // Right click
             this.rightMouseDown = true;
@@ -79,8 +78,6 @@ export class Input {
         if (e.button === 0) {
             this.mouseDown = false;
             this.handleLeftRelease();
-        } else if (e.button === 1) {
-            this.isPanning = false;
         } else if (e.button === 2) {
             this.rightMouseDown = false;
         }
@@ -94,10 +91,7 @@ export class Input {
         this.mouseY = e.clientY;
         this.updateWorldCoords();
         
-        // Panning
-        if (this.isPanning) {
-            this.renderer.pan(-dx, -dy);
-        }
+        // Middle mouse panning disabled - use WASD for camera movement
         
         // Selection drag
         if (this.isDraggingSelection) {
@@ -130,7 +124,7 @@ export class Input {
     
     onWheel(e) {
         e.preventDefault();
-        this.renderer.zoom(e.deltaY, e.clientX, e.clientY);
+        // Mouse wheel zoom disabled - use WASD for camera movement
     }
     
     onKeyDown(e) {
@@ -421,21 +415,7 @@ export class Input {
             this.renderer.pan(panSpeed, 0);
         }
         
-        // Edge scrolling
-        const edgeSize = 30;
-        const edgeSpeed = 300 * this.game.deltaTime;
-        
-        if (this.mouseX < edgeSize) {
-            this.renderer.pan(-edgeSpeed, 0);
-        } else if (this.mouseX > window.innerWidth - edgeSize) {
-            this.renderer.pan(edgeSpeed, 0);
-        }
-        
-        if (this.mouseY < edgeSize) {
-            this.renderer.pan(0, -edgeSpeed);
-        } else if (this.mouseY > window.innerHeight - edgeSize) {
-            this.renderer.pan(0, edgeSpeed);
-        }
+        // Edge scrolling disabled - use WASD for camera movement
     }
 }
 
