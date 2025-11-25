@@ -922,9 +922,9 @@ export class TrenchSystem {
                         return true;
                     }
                 }
-                return false;
             }
-            return true;
+            // No renderer, no points, or no visible points - hide enemy trench
+            return false;
         });
         
         // LAYER 1: Render all blueprint trenches first (dashed, underneath)

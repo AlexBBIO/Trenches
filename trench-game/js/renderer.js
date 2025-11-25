@@ -778,8 +778,8 @@ export class Renderer {
         // Draw effects
         this.renderEffects(ctx);
         
-        // Draw Fog of War overlay
-        this.renderFogOfWar(ctx);
+        // Draw Fog of War overlay (disabled for now)
+        // this.renderFogOfWar(ctx);
         
         // Draw scout plane if active
         if (this.game.scoutFlyover && this.game.scoutFlyover.active) {

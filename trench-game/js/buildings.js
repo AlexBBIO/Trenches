@@ -680,7 +680,7 @@ export class BuildingManager {
         
         if (building.occupants.length === 0) return;
         
-        // Find enemies in range - player bunkers respect fog of war
+        // Find enemies in range - player buildings respect fog of war
         const enemies = building.team === CONFIG.TEAM_PLAYER
             ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
             : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
@@ -726,7 +726,7 @@ export class BuildingManager {
     
     // Mortar logic - fires at enemies with fractional shell cost
     updateMortar(building, dt) {
-        // Player buildings respect fog of war - only target visible enemies
+        // Get enemies in range - player buildings respect fog of war
         const enemies = building.team === CONFIG.TEAM_PLAYER
             ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
             : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
@@ -881,7 +881,7 @@ export class BuildingManager {
     }
     
     updateWeapon(building, dt) {
-        // Player buildings respect fog of war - only target visible enemies
+        // Get enemies in range - player buildings respect fog of war
         const enemies = building.team === CONFIG.TEAM_PLAYER
             ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
             : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
@@ -1111,7 +1111,6 @@ export class BuildingManager {
         const sortedBuildings = [...this.buildings].sort((a, b) => a.y - b.y);
         for (const building of sortedBuildings) {
             // Hide enemy buildings in fog of war (except HQ which is always visible)
-            // Enemy buildings only visible when currently in vision, not just explored
             if (renderer && building.team === CONFIG.TEAM_ENEMY && building.type !== 'hq') {
                 if (!renderer.isPositionVisible(building.x, building.y)) {
                     continue; // Don't render enemy buildings not currently visible
@@ -2184,6 +2183,8 @@ export class BuildingManager {
             ctx.fillStyle = '#1a3a4a';
             ctx.beginPath();
             ctx.arc(19, -9, 2, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
             ctx.arc(21, -9, 2, 0, Math.PI * 2);
             ctx.fill();
             // Lens glint
