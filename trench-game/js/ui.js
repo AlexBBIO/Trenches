@@ -13,11 +13,18 @@ export class UI {
         
         this.manpowerDisplay = document.getElementById('manpower');
         this.suppliesDisplay = document.getElementById('supplies');
+        this.shellsDisplay = document.getElementById('shells');
         this.selectionInfo = document.getElementById('selection-info');
         this.selectedCount = document.getElementById('selected-count');
         
         this.toolbar = document.getElementById('toolbar');
         this.toolButtons = document.querySelectorAll('.tool-btn');
+        
+        // Cargo slider elements
+        this.cargoSlider = document.getElementById('cargo-slider');
+        this.previewSoldiers = document.getElementById('preview-soldiers');
+        this.previewWorkers = document.getElementById('preview-workers');
+        this.previewShells = document.getElementById('preview-shells');
         
         // Setup event listeners
         this.setupEventListeners();
@@ -56,6 +63,31 @@ export class UI {
         this.minimap.addEventListener('click', (e) => {
             this.handleMinimapClick(e);
         });
+        
+        // Cargo slider
+        if (this.cargoSlider) {
+            this.cargoSlider.addEventListener('input', (e) => {
+                const ratio = parseInt(e.target.value);
+                this.game.trainSystem.setCargoRatio(ratio);
+                this.updateCargoPreview();
+            });
+        }
+    }
+    
+    updateCargoPreview() {
+        if (!this.game.trainSystem) return;
+        
+        const cargo = this.game.trainSystem.getCargoAmounts(true);
+        
+        if (this.previewSoldiers) {
+            this.previewSoldiers.textContent = `👥 ${cargo.soldiers}`;
+        }
+        if (this.previewWorkers) {
+            this.previewWorkers.textContent = `🔧 ${cargo.workers}`;
+        }
+        if (this.previewShells) {
+            this.previewShells.textContent = `💣 ${cargo.shells}`;
+        }
     }
     
     handleMinimapClick(e) {
@@ -81,6 +113,9 @@ export class UI {
         // Set minimap size
         this.minimap.width = 200;
         this.minimap.height = 150;
+        
+        // Initialize cargo preview
+        this.updateCargoPreview();
     }
     
     hideHUD() {
@@ -118,6 +153,9 @@ export class UI {
         // Update resource displays
         this.manpowerDisplay.textContent = this.game.resources.manpower;
         this.suppliesDisplay.textContent = Math.floor(this.game.resources.supplies);
+        if (this.shellsDisplay) {
+            this.shellsDisplay.textContent = this.game.resources.shells;
+        }
         
         // Slowly regenerate supplies
         this.game.resources.supplies = Math.min(

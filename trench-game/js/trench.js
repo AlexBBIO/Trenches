@@ -249,6 +249,55 @@ export class TrenchSystem {
         return nearest;
     }
     
+    // Find nearest point on any trench segment (for building connections)
+    findNearestTrenchPoint(x, y, team) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const trench of this.trenches) {
+            if (trench.team !== team || trench.isBlueprint) continue;
+            
+            for (const segment of trench.segments) {
+                if (!segment.built || segment.destroyed) continue;
+                
+                // Find closest point on this segment
+                const closestPoint = this.getClosestPointOnSegment(x, y, segment.start, segment.end);
+                const dist = Math.sqrt((closestPoint.x - x) ** 2 + (closestPoint.y - y) ** 2);
+                
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = {
+                        x: closestPoint.x,
+                        y: closestPoint.y,
+                        distance: dist,
+                        trench
+                    };
+                }
+            }
+        }
+        
+        return nearest;
+    }
+    
+    // Get closest point on a line segment to a given point
+    getClosestPointOnSegment(px, py, a, b) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const lengthSq = dx * dx + dy * dy;
+        
+        if (lengthSq === 0) {
+            return { x: a.x, y: a.y };
+        }
+        
+        let t = ((px - a.x) * dx + (py - a.y) * dy) / lengthSq;
+        t = Math.max(0, Math.min(1, t));
+        
+        return {
+            x: a.x + t * dx,
+            y: a.y + t * dy
+        };
+    }
+    
     findNearestBuildSite(x, y, team, workerId = null) {
         let nearest = null;
         let minDist = Infinity;

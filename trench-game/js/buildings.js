@@ -9,6 +9,8 @@ export class BuildingManager {
         this.buildingIdCounter = 0;
         this.claimedBuildings = new Map(); // buildingId -> workerId
         this.claimedWireSegments = new Map(); // "wireId-segIdx" -> workerId
+        this.buildingConnections = new Map(); // buildingId -> { trenchPoint, trench }
+        this.connectionRange = 100; // Max range for building-trench connections
     }
     
     clear() {
@@ -76,6 +78,8 @@ export class BuildingManager {
                 building.fireRate = 0.15;
                 building.buildTime = 100;
                 building.needsManning = true;
+                building.ammoCount = 0;     // Artillery starts empty, needs shells
+                building.maxAmmo = 10;      // Max shells artillery can hold
                 break;
         }
         
@@ -195,6 +199,28 @@ export class BuildingManager {
             b.needsManning && 
             !b.assignedUnit
         );
+    }
+    
+    // Find artillery that needs ammo (for shell hauling)
+    getArtilleryNeedingAmmo(team) {
+        return this.buildings.filter(b => 
+            b.team === team &&
+            b.type === 'artillery' &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.ammoCount < b.maxAmmo
+        ).sort((a, b) => a.ammoCount - b.ammoCount); // Prioritize lowest ammo first
+    }
+    
+    // Get the artillery with lowest ammo that isn't being resupplied
+    findArtilleryNeedingResupply(team, excludeIds = []) {
+        const artillery = this.getArtilleryNeedingAmmo(team);
+        for (const art of artillery) {
+            if (!excludeIds.includes(art.id) && art.ammoCount < art.maxAmmo * 0.7) {
+                return art;
+            }
+        }
+        return null;
     }
     
     findNearestBuildSite(x, y, team, workerId = null) {
@@ -414,6 +440,34 @@ export class BuildingManager {
             if (wire.destroyed || wire.isBlueprint) continue;
             this.updateBarbedWireEffect(wire);
         }
+        
+        // Update building-trench connections periodically
+        this.updateBuildingConnections();
+    }
+    
+    updateBuildingConnections() {
+        for (const building of this.buildings) {
+            if (building.destroyed || building.isBlueprint) continue;
+            if (building.type === 'hq') continue; // HQ doesn't need trench connection
+            
+            // Find nearest trench point
+            const nearestTrench = this.game.trenchSystem.findNearestTrenchPoint(
+                building.x, building.y, building.team
+            );
+            
+            if (nearestTrench && nearestTrench.distance < this.connectionRange) {
+                this.buildingConnections.set(building.id, {
+                    buildingX: building.x,
+                    buildingY: building.y,
+                    trenchX: nearestTrench.x,
+                    trenchY: nearestTrench.y,
+                    distance: nearestTrench.distance,
+                    trench: nearestTrench.trench
+                });
+            } else {
+                this.buildingConnections.delete(building.id);
+            }
+        }
     }
     
     updateWeapon(building, dt) {
@@ -446,8 +500,18 @@ export class BuildingManager {
         }
         
         if (target && building.attackCooldown <= 0) {
-            this.fire(building, target);
-            building.attackCooldown = 1 / building.fireRate;
+            // Artillery needs ammo to fire
+            if (building.type === 'artillery') {
+                if (building.ammoCount > 0) {
+                    building.ammoCount--;
+                    this.fire(building, target);
+                    building.attackCooldown = 1 / building.fireRate;
+                }
+                // No ammo - can't fire
+            } else {
+                this.fire(building, target);
+                building.attackCooldown = 1 / building.fireRate;
+            }
         }
     }
     
@@ -590,6 +654,9 @@ export class BuildingManager {
     }
     
     render(ctx) {
+        // Render building-trench connections FIRST (underneath everything)
+        this.renderBuildingConnections(ctx);
+        
         // Render barbed wire lines
         for (const wire of this.barbedWireLines) {
             if (wire.destroyed) continue;
@@ -615,6 +682,107 @@ export class BuildingManager {
                     this.renderArtillery(ctx, building);
                     break;
             }
+        }
+    }
+    
+    renderBuildingConnections(ctx) {
+        for (const [buildingId, connection] of this.buildingConnections) {
+            this.renderConnectionPathway(ctx, connection);
+        }
+    }
+    
+    renderConnectionPathway(ctx, connection) {
+        const { buildingX, buildingY, trenchX, trenchY, distance } = connection;
+        
+        // Calculate direction and perpendicular
+        const dx = trenchX - buildingX;
+        const dy = trenchY - buildingY;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        if (length < 10) return;
+        
+        const nx = -dy / length; // Perpendicular normal
+        const ny = dx / length;
+        const pathWidth = 14;
+        
+        ctx.save();
+        
+        // Shadow underneath
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.moveTo(buildingX + nx * (pathWidth/2 + 2) + 2, buildingY + ny * (pathWidth/2 + 2) + 2);
+        ctx.lineTo(trenchX + nx * (pathWidth/2 + 2) + 2, trenchY + ny * (pathWidth/2 + 2) + 2);
+        ctx.lineTo(trenchX - nx * (pathWidth/2 + 2) + 2, trenchY - ny * (pathWidth/2 + 2) + 2);
+        ctx.lineTo(buildingX - nx * (pathWidth/2 + 2) + 2, buildingY - ny * (pathWidth/2 + 2) + 2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Dirt path edges (dug out earth)
+        ctx.fillStyle = CONFIG.COLORS.MUD_LIGHT;
+        ctx.beginPath();
+        ctx.moveTo(buildingX + nx * pathWidth/2, buildingY + ny * pathWidth/2);
+        ctx.lineTo(trenchX + nx * pathWidth/2, trenchY + ny * pathWidth/2);
+        ctx.lineTo(trenchX - nx * pathWidth/2, trenchY - ny * pathWidth/2);
+        ctx.lineTo(buildingX - nx * pathWidth/2, buildingY - ny * pathWidth/2);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Inner path (darker, like a shallow trench)
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.beginPath();
+        ctx.moveTo(buildingX + nx * (pathWidth/2 - 3), buildingY + ny * (pathWidth/2 - 3));
+        ctx.lineTo(trenchX + nx * (pathWidth/2 - 3), trenchY + ny * (pathWidth/2 - 3));
+        ctx.lineTo(trenchX - nx * (pathWidth/2 - 3), trenchY - ny * (pathWidth/2 - 3));
+        ctx.lineTo(buildingX - nx * (pathWidth/2 - 3), buildingY - ny * (pathWidth/2 - 3));
+        ctx.closePath();
+        ctx.fill();
+        
+        // Duckboards along the path
+        const boardSpacing = 12;
+        const boardCount = Math.floor(length / boardSpacing);
+        
+        for (let i = 1; i < boardCount; i++) {
+            const t = i / boardCount;
+            const px = buildingX + dx * t;
+            const py = buildingY + dy * t;
+            
+            // Board shadow
+            ctx.fillStyle = '#1a1505';
+            ctx.save();
+            ctx.translate(px + 1, py + 1);
+            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+            ctx.fillRect(-5, -1.5, 10, 3);
+            ctx.restore();
+            
+            // Main board
+            ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+            ctx.save();
+            ctx.translate(px, py);
+            ctx.rotate(Math.atan2(dy, dx) + Math.PI / 2);
+            ctx.fillRect(-5, -1.5, 10, 3);
+            ctx.restore();
+        }
+        
+        // Small sandbag corners at connection points
+        this.drawSmallSandbags(ctx, buildingX, buildingY, nx, ny, pathWidth);
+        this.drawSmallSandbags(ctx, trenchX, trenchY, nx, ny, pathWidth);
+        
+        ctx.restore();
+    }
+    
+    drawSmallSandbags(ctx, x, y, nx, ny, width) {
+        for (let side = -1; side <= 1; side += 2) {
+            const bx = x + nx * (width/2 + 2) * side;
+            const by = y + ny * (width/2 + 2) * side;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 1, 4, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 4, 3, 0, 0, Math.PI * 2);
+            ctx.fill();
         }
     }
     
@@ -1146,6 +1314,9 @@ export class BuildingManager {
             ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('NO CREW', 0, 45);
+        } else if (!building.isBlueprint) {
+            // Show ammo count for built artillery
+            this.renderAmmoBar(ctx, building, 50);
         }
         
         this.renderHealthBar(ctx, building, 50);
@@ -1262,5 +1433,41 @@ export class BuildingManager {
         // Highlight on top of health bar
         ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
         ctx.fillRect(-width/2, barY, width * healthPercent, 1);
+    }
+    
+    renderAmmoBar(ctx, building, width) {
+        if (!building.maxAmmo) return;
+        
+        const barHeight = 3;
+        const ammoPercent = building.ammoCount / building.maxAmmo;
+        const barY = 38; // Below the artillery
+        
+        // Background
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(-width/2 - 1, barY - 1, width + 2, barHeight + 2);
+        
+        // Bar background
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-width/2, barY, width, barHeight);
+        
+        // Ammo bar - orange/yellow color
+        const ammoColor = ammoPercent > 0.5 ? '#ddaa44' : 
+                         ammoPercent > 0.2 ? '#dd6644' : '#dd4444';
+        ctx.fillStyle = ammoColor;
+        ctx.fillRect(-width/2, barY, width * ammoPercent, barHeight);
+        
+        // Shell icons
+        ctx.fillStyle = '#888';
+        ctx.font = '8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(`${building.ammoCount}/${building.maxAmmo}`, 0, barY + barHeight + 10);
+        
+        // Warning if low ammo
+        if (ammoPercent <= 0.2 && building.assignedUnit) {
+            const pulse = 0.6 + Math.sin(Date.now() / 150) * 0.4;
+            ctx.fillStyle = `rgba(221, 68, 68, ${pulse})`;
+            ctx.font = 'bold 9px sans-serif';
+            ctx.fillText('LOW AMMO', 0, barY + barHeight + 22);
+        }
     }
 }

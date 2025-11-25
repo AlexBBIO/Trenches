@@ -25,6 +25,8 @@ export const CONFIG = {
     // Starting resources
     STARTING_MANPOWER: 20,
     STARTING_SUPPLIES: 100,
+    STARTING_SHELLS: 20,
+    MAX_SHELLS: 100,
     
     // Train settings
     TRAIN_INTERVAL: 30000, // 30 seconds
@@ -133,7 +135,8 @@ class Game {
         // Resources
         this.resources = {
             manpower: CONFIG.STARTING_MANPOWER,
-            supplies: CONFIG.STARTING_SUPPLIES
+            supplies: CONFIG.STARTING_SUPPLIES,
+            shells: CONFIG.STARTING_SHELLS
         };
         
         // Initialize systems
@@ -180,6 +183,7 @@ class Game {
         // Reset resources
         this.resources.manpower = CONFIG.STARTING_MANPOWER;
         this.resources.supplies = CONFIG.STARTING_SUPPLIES;
+        this.resources.shells = CONFIG.STARTING_SHELLS;
         
         // Clear everything
         this.trenchSystem.clear();

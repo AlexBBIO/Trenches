@@ -14,6 +14,43 @@ export class TrainSystem {
         // Train interval can vary
         this.playerInterval = CONFIG.TRAIN_INTERVAL;
         this.enemyInterval = CONFIG.TRAIN_INTERVAL * 1.2; // Enemy slightly slower
+        
+        // Cargo ratio (0-100: 0 = all shells, 100 = all soldiers)
+        this.cargoRatio = 70; // Default 70% soldiers, 30% shells
+        
+        // Total train capacity for balancing
+        this.totalCapacity = 20; // Total "units" of cargo space
+        this.workersPerTrain = CONFIG.WORKERS_PER_TRAIN; // Workers always fixed
+    }
+    
+    // Calculate cargo based on ratio slider
+    getCargoAmounts(isPlayer) {
+        if (!isPlayer) {
+            // Enemy gets fixed amounts
+            return {
+                soldiers: CONFIG.SOLDIERS_PER_TRAIN,
+                workers: CONFIG.WORKERS_PER_TRAIN,
+                shells: 8 // Enemy also gets shells
+            };
+        }
+        
+        // Player cargo based on slider
+        // Ratio determines split: 100% = all soldiers, 0% = all shells
+        const ratio = this.cargoRatio / 100;
+        const availableCapacity = this.totalCapacity - this.workersPerTrain;
+        
+        const soldiers = Math.round(availableCapacity * ratio);
+        const shells = availableCapacity - soldiers; // Remaining capacity goes to shells
+        
+        return {
+            soldiers: Math.max(0, soldiers),
+            workers: this.workersPerTrain,
+            shells: Math.max(0, shells)
+        };
+    }
+    
+    setCargoRatio(ratio) {
+        this.cargoRatio = Math.max(0, Math.min(100, ratio));
     }
     
     start() {
@@ -57,6 +94,7 @@ export class TrainSystem {
     
     spawnTrain(team) {
         const isPlayer = team === CONFIG.TEAM_PLAYER;
+        const cargo = this.getCargoAmounts(isPlayer);
         
         const train = {
             id: this.trainIdCounter++,
@@ -68,8 +106,9 @@ export class TrainSystem {
             state: 'arriving', // arriving, stopped, departing, departed
             stopTime: 0,
             maxStopTime: 3, // Seconds to unload
-            soldiers: CONFIG.SOLDIERS_PER_TRAIN,
-            workers: CONFIG.WORKERS_PER_TRAIN,
+            soldiers: cargo.soldiers,
+            workers: cargo.workers,
+            shells: cargo.shells,
             unloaded: false,
             wagons: 3
         };
@@ -159,6 +198,25 @@ export class TrainSystem {
             const y = train.y + offsetY + (Math.random() - 0.5) * 10;
             
             this.game.unitManager.spawnUnit('worker', x, y, train.team);
+        }
+        
+        // Deliver shells to storage (at HQ)
+        if (train.shells > 0) {
+            if (isPlayer) {
+                // Player shells go to resource stockpile
+                this.game.resources.shells = Math.min(
+                    CONFIG.MAX_SHELLS,
+                    this.game.resources.shells + train.shells
+                );
+                
+                // Visual effect for shell delivery
+                this.game.addEffect('muzzle', train.x, train.y - 20, {
+                    size: 15,
+                    duration: 0.3
+                });
+            }
+            // Enemy shells automatically resupply their artillery
+            // (handled separately in AI)
         }
         
         // Update manpower for player

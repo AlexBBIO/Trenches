@@ -199,6 +199,8 @@ class Unit {
             this.attackDamage = 0;
             this.attackRate = 0;
             this.buildSpeed = 30;
+            this.shellsCarrying = 0;  // Shells being carried
+            this.maxShellsCarry = 5;  // Max shells per trip
         }
     }
     
@@ -382,7 +384,7 @@ class Unit {
             }
         }
         
-        // Workers: Look for tasks (repair first, then build)
+        // Workers: Look for tasks (repair first, then build, then haul shells)
         if (this.type === 'worker' && !this.task) {
             // PRIORITY 1: Check for damaged structures to repair
             let repairTarget = this.findRepairTask();
@@ -435,8 +437,61 @@ class Unit {
                     this.targetY = buildSite.y;
                     this.setState(UnitState.MOVING);
                 }
+                return;
+            }
+            
+            // PRIORITY 4: Check for shell hauling (artillery needs ammo)
+            if (this.team === CONFIG.TEAM_PLAYER) {
+                const shellTask = this.findShellHaulingTask();
+                if (shellTask) {
+                    this.assignShellHaulingTask(shellTask);
+                    return;
+                }
             }
         }
+    }
+    
+    // Find shell hauling task - artillery that needs ammo
+    findShellHaulingTask() {
+        // Check if there are shells to haul
+        if (this.game.resources.shells <= 0) return null;
+        
+        // Find artillery that needs ammo and isn't being resupplied
+        const workersHauling = this.game.unitManager.units.filter(u => 
+            u.type === 'worker' && 
+            u.task && 
+            u.task.type === 'haul_shells' &&
+            u.task.targetArtillery
+        ).map(u => u.task.targetArtillery.id);
+        
+        const artillery = this.game.buildingManager.findArtilleryNeedingResupply(
+            this.team, 
+            workersHauling
+        );
+        
+        if (artillery) {
+            return { artillery };
+        }
+        
+        return null;
+    }
+    
+    // Assign shell hauling task
+    assignShellHaulingTask(shellTask) {
+        const hq = this.game.buildingManager.getHQ(this.team);
+        if (!hq) return;
+        
+        this.task = {
+            type: 'haul_shells',
+            phase: 'to_hq', // 'to_hq' -> 'loading' -> 'to_artillery' -> 'unloading'
+            targetArtillery: shellTask.artillery,
+            hq: hq
+        };
+        
+        // Go to HQ first to pick up shells
+        this.targetX = hq.x;
+        this.targetY = hq.y;
+        this.setState(UnitState.MOVING);
     }
     
     // Find repair tasks for workers
@@ -517,7 +572,8 @@ class Unit {
                     this.task.type === 'build_emplacement' || 
                     this.task.type === 'build_wire' ||
                     this.task.type === 'repair_building' ||
-                    this.task.type === 'repair_trench') {
+                    this.task.type === 'repair_trench' ||
+                    this.task.type === 'haul_shells') {
                     this.setState(UnitState.WORKING);
                     return;
                 }
@@ -720,6 +776,18 @@ class Unit {
                 this.setState(UnitState.IDLE);
                 return;
             }
+        } else if (this.task.type === 'haul_shells') {
+            // Check if artillery still exists
+            if (this.task.targetArtillery && this.task.targetArtillery.destroyed) {
+                // Return any shells we're carrying
+                if (this.shellsCarrying > 0) {
+                    this.game.resources.shells += this.shellsCarrying;
+                    this.shellsCarrying = 0;
+                }
+                this.clearTask();
+                this.setState(UnitState.IDLE);
+                return;
+            }
         }
         
         // Create dirt effect
@@ -848,6 +916,119 @@ class Unit {
                     this.targetX = nextRepairTarget.x;
                     this.targetY = nextRepairTarget.y;
                     this.setState(UnitState.MOVING);
+                } else {
+                    this.clearTask();
+                    this.setState(UnitState.IDLE);
+                }
+            }
+        } else if (this.task.type === 'haul_shells') {
+            this.updateShellHauling(dt);
+        }
+    }
+    
+    updateShellHauling(dt) {
+        const task = this.task;
+        
+        if (task.phase === 'to_hq') {
+            // Should be at HQ now, pick up shells
+            const distToHQ = Math.sqrt(
+                (this.x - task.hq.x) ** 2 + (this.y - task.hq.y) ** 2
+            );
+            
+            if (distToHQ < 40) {
+                task.phase = 'loading';
+                task.loadTime = 0;
+            }
+        } else if (task.phase === 'loading') {
+            // Loading shells from HQ
+            task.loadTime += dt;
+            
+            // Create loading effect
+            if (Math.random() < dt * 3) {
+                this.game.addEffect('muzzle', this.x, this.y - 5, {
+                    size: 5,
+                    duration: 0.2
+                });
+            }
+            
+            if (task.loadTime >= 1) {
+                // Pick up shells
+                const shellsToTake = Math.min(
+                    this.maxShellsCarry,
+                    this.game.resources.shells
+                );
+                
+                if (shellsToTake > 0) {
+                    this.game.resources.shells -= shellsToTake;
+                    this.shellsCarrying = shellsToTake;
+                    
+                    // Now go to artillery
+                    task.phase = 'to_artillery';
+                    this.targetX = task.targetArtillery.x;
+                    this.targetY = task.targetArtillery.y;
+                    this.setState(UnitState.MOVING);
+                } else {
+                    // No shells available
+                    this.clearTask();
+                    this.setState(UnitState.IDLE);
+                }
+            }
+        } else if (task.phase === 'to_artillery') {
+            // Check if artillery still exists and needs ammo
+            if (task.targetArtillery.destroyed || 
+                task.targetArtillery.ammoCount >= task.targetArtillery.maxAmmo) {
+                // Return shells to stockpile and find new task
+                this.game.resources.shells += this.shellsCarrying;
+                this.shellsCarrying = 0;
+                this.clearTask();
+                this.setState(UnitState.IDLE);
+                return;
+            }
+            
+            const distToArt = Math.sqrt(
+                (this.x - task.targetArtillery.x) ** 2 + 
+                (this.y - task.targetArtillery.y) ** 2
+            );
+            
+            if (distToArt < 50) {
+                task.phase = 'unloading';
+                task.unloadTime = 0;
+            }
+        } else if (task.phase === 'unloading') {
+            // Unloading shells to artillery
+            task.unloadTime += dt;
+            
+            // Create unloading effect
+            if (Math.random() < dt * 4) {
+                this.game.addEffect('muzzle', 
+                    task.targetArtillery.x + (Math.random() - 0.5) * 20, 
+                    task.targetArtillery.y - 10, 
+                    { size: 6, duration: 0.15 }
+                );
+            }
+            
+            if (task.unloadTime >= 0.8) {
+                // Deliver shells
+                const shellsToDeliver = Math.min(
+                    this.shellsCarrying,
+                    task.targetArtillery.maxAmmo - task.targetArtillery.ammoCount
+                );
+                
+                task.targetArtillery.ammoCount += shellsToDeliver;
+                this.shellsCarrying -= shellsToDeliver;
+                
+                // If we have leftover shells and artillery isn't full, return to idle
+                // Otherwise continue to next artillery or go back to HQ
+                if (this.shellsCarrying > 0) {
+                    // Return leftover to stockpile
+                    this.game.resources.shells += this.shellsCarrying;
+                    this.shellsCarrying = 0;
+                }
+                
+                // Check if more artillery needs ammo
+                const nextArtillery = this.findShellHaulingTask();
+                if (nextArtillery && this.game.resources.shells > 0) {
+                    this.assignShellHaulingTask(nextArtillery);
                 } else {
                     this.clearTask();
                     this.setState(UnitState.IDLE);
@@ -1078,6 +1259,11 @@ class Unit {
         
         // Clean up worker claims
         if (this.type === 'worker') {
+            // Return any shells being carried
+            if (this.shellsCarrying > 0) {
+                this.game.resources.shells += this.shellsCarrying;
+                this.shellsCarrying = 0;
+            }
             this.clearTask();
         }
         
@@ -1476,6 +1662,7 @@ class Unit {
     drawWorker(ctx, isMoving, legOffset) {
         const bodyColor = '#5a5040';
         const skinColor = CONFIG.COLORS.PLAYER_SKIN;
+        const isHauling = this.shellsCarrying > 0;
         const workAnim = this.state === UnitState.WORKING ? Math.sin(this.animTime * 12) * 3 : legOffset;
         
         // Legs
@@ -1527,28 +1714,58 @@ class Unit {
         ctx.fillStyle = '#4a4030';
         ctx.fillRect(-2, -8, 5, 2);
         
-        // Shovel/tool
-        const shovelAngle = this.state === UnitState.WORKING ? 
-            Math.sin(this.animTime * 10) * 0.8 : 0.3;
-        ctx.save();
-        ctx.translate(5, 0);
-        ctx.rotate(shovelAngle);
-        // Handle
-        ctx.fillStyle = '#4a3a2a';
-        ctx.fillRect(-1, -4, 3, 14);
-        // Blade
-        ctx.fillStyle = '#6a6a6a';
-        ctx.beginPath();
-        ctx.moveTo(-2, 8);
-        ctx.lineTo(4, 8);
-        ctx.lineTo(3, 14);
-        ctx.lineTo(-1, 14);
-        ctx.closePath();
-        ctx.fill();
-        // Blade edge highlight
-        ctx.fillStyle = '#8a8a8a';
-        ctx.fillRect(-1, 8, 4, 1);
-        ctx.restore();
+        // Shell crate on back when hauling
+        if (isHauling) {
+            ctx.save();
+            // Crate/box on back
+            ctx.fillStyle = '#4a3a20';
+            ctx.fillRect(-7, -4, 8, 8);
+            // Crate detail
+            ctx.strokeStyle = '#3a2a10';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(-7, -4, 8, 8);
+            // Cross straps
+            ctx.strokeStyle = '#5a4a30';
+            ctx.beginPath();
+            ctx.moveTo(-7, -4);
+            ctx.lineTo(1, 4);
+            ctx.moveTo(1, -4);
+            ctx.lineTo(-7, 4);
+            ctx.stroke();
+            // Shell tips visible
+            ctx.fillStyle = '#6a6a5a';
+            for (let i = 0; i < Math.min(3, this.shellsCarrying); i++) {
+                ctx.beginPath();
+                ctx.arc(-5 + i * 2, -5, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+        
+        // Shovel/tool (only show if not hauling)
+        if (!isHauling) {
+            const shovelAngle = this.state === UnitState.WORKING ? 
+                Math.sin(this.animTime * 10) * 0.8 : 0.3;
+            ctx.save();
+            ctx.translate(5, 0);
+            ctx.rotate(shovelAngle);
+            // Handle
+            ctx.fillStyle = '#4a3a2a';
+            ctx.fillRect(-1, -4, 3, 14);
+            // Blade
+            ctx.fillStyle = '#6a6a6a';
+            ctx.beginPath();
+            ctx.moveTo(-2, 8);
+            ctx.lineTo(4, 8);
+            ctx.lineTo(3, 14);
+            ctx.lineTo(-1, 14);
+            ctx.closePath();
+            ctx.fill();
+            // Blade edge highlight
+            ctx.fillStyle = '#8a8a8a';
+            ctx.fillRect(-1, 8, 4, 1);
+            ctx.restore();
+        }
         
         // Digging effect when working
         if (this.state === UnitState.WORKING && Math.sin(this.animTime * 10) > 0.5) {
