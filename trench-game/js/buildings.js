@@ -10,7 +10,7 @@ export class BuildingManager {
         this.claimedBuildings = new Map(); // buildingId -> workerId
         this.claimedWireSegments = new Map(); // "wireId-segIdx" -> workerId
         this.buildingConnections = new Map(); // buildingId -> { trenchPoint, trench }
-        this.connectionRange = 100; // Max range for building-trench connections
+        this.connectionRange = 45; // Max range for building-trench connections (must be close)
     }
     
     clear() {
