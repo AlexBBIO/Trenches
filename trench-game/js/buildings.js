@@ -693,7 +693,7 @@ export class BuildingManager {
     }
     
     renderConnectionPathway(ctx, connection) {
-        const { buildingX, buildingY, trenchX, trenchY, distance } = connection;
+        const { buildingX, buildingY, trenchX, trenchY, distance, trench } = connection;
         
         // Calculate direction and perpendicular
         const dx = trenchX - buildingX;
@@ -701,40 +701,77 @@ export class BuildingManager {
         const length = Math.sqrt(dx * dx + dy * dy);
         if (length < 10) return;
         
-        const nx = -dy / length; // Perpendicular normal
-        const ny = dx / length;
-        const pathWidth = 14;
+        const dirX = dx / length;
+        const dirY = dy / length;
+        const nx = -dirY; // Perpendicular normal
+        const ny = dirX;
+        const pathWidth = 16; // Slightly wider for better blend
+        
+        // Extend the path slightly past the trench connection point
+        // to ensure seamless merging
+        const extendedTrenchX = trenchX + dirX * 4;
+        const extendedTrenchY = trenchY + dirY * 4;
         
         ctx.save();
         
-        // Shadow underneath
+        // Shadow underneath - tapered at trench end
         ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
         ctx.moveTo(buildingX + nx * (pathWidth/2 + 2) + 2, buildingY + ny * (pathWidth/2 + 2) + 2);
-        ctx.lineTo(trenchX + nx * (pathWidth/2 + 2) + 2, trenchY + ny * (pathWidth/2 + 2) + 2);
-        ctx.lineTo(trenchX - nx * (pathWidth/2 + 2) + 2, trenchY - ny * (pathWidth/2 + 2) + 2);
+        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 2) + 2, extendedTrenchY + ny * (pathWidth/2 - 2) + 2);
+        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 2) + 2, extendedTrenchY - ny * (pathWidth/2 - 2) + 2);
         ctx.lineTo(buildingX - nx * (pathWidth/2 + 2) + 2, buildingY - ny * (pathWidth/2 + 2) + 2);
         ctx.closePath();
         ctx.fill();
         
-        // Dirt path edges (dug out earth)
-        ctx.fillStyle = CONFIG.COLORS.MUD_LIGHT;
+        // Outer sandbag parapet layer - matches trench parapet color
+        // Tapers towards the trench for smooth merge
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
         ctx.beginPath();
         ctx.moveTo(buildingX + nx * pathWidth/2, buildingY + ny * pathWidth/2);
-        ctx.lineTo(trenchX + nx * pathWidth/2, trenchY + ny * pathWidth/2);
-        ctx.lineTo(trenchX - nx * pathWidth/2, trenchY - ny * pathWidth/2);
+        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 4), extendedTrenchY + ny * (pathWidth/2 - 4));
+        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 4), extendedTrenchY - ny * (pathWidth/2 - 4));
         ctx.lineTo(buildingX - nx * pathWidth/2, buildingY - ny * pathWidth/2);
         ctx.closePath();
         ctx.fill();
         
-        // Inner path (darker, like a shallow trench)
+        // Inner wall layer - matches trench wall
         ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
         ctx.beginPath();
         ctx.moveTo(buildingX + nx * (pathWidth/2 - 3), buildingY + ny * (pathWidth/2 - 3));
-        ctx.lineTo(trenchX + nx * (pathWidth/2 - 3), trenchY + ny * (pathWidth/2 - 3));
-        ctx.lineTo(trenchX - nx * (pathWidth/2 - 3), trenchY - ny * (pathWidth/2 - 3));
+        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 6), extendedTrenchY + ny * (pathWidth/2 - 6));
+        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 6), extendedTrenchY - ny * (pathWidth/2 - 6));
         ctx.lineTo(buildingX - nx * (pathWidth/2 - 3), buildingY - ny * (pathWidth/2 - 3));
         ctx.closePath();
+        ctx.fill();
+        
+        // Floor layer - matches trench floor, extends into trench
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        ctx.moveTo(buildingX + nx * (pathWidth/2 - 6), buildingY + ny * (pathWidth/2 - 6));
+        ctx.lineTo(extendedTrenchX + nx * (pathWidth/2 - 8), extendedTrenchY + ny * (pathWidth/2 - 8));
+        ctx.lineTo(extendedTrenchX - nx * (pathWidth/2 - 8), extendedTrenchY - ny * (pathWidth/2 - 8));
+        ctx.lineTo(buildingX - nx * (pathWidth/2 - 6), buildingY - ny * (pathWidth/2 - 6));
+        ctx.closePath();
+        ctx.fill();
+        
+        // Smooth blend circle at trench connection point
+        // This covers any remaining seam
+        const blendRadius = pathWidth / 2 - 2;
+        
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+        ctx.beginPath();
+        ctx.arc(trenchX, trenchY, blendRadius + 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.beginPath();
+        ctx.arc(trenchX, trenchY, blendRadius - 1, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        ctx.arc(trenchX, trenchY, blendRadius - 4, 0, Math.PI * 2);
         ctx.fill();
         
         // Duckboards along the path
@@ -763,9 +800,25 @@ export class BuildingManager {
             ctx.restore();
         }
         
-        // Small sandbag corners at connection points
+        // Small sandbag details at building connection
         this.drawSmallSandbags(ctx, buildingX, buildingY, nx, ny, pathWidth);
-        this.drawSmallSandbags(ctx, trenchX, trenchY, nx, ny, pathWidth);
+        
+        // Sandbag details around the trench connection blend point
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2 + Math.atan2(dy, dx);
+            const bx = trenchX + Math.cos(angle) * (blendRadius);
+            const by = trenchY + Math.sin(angle) * (blendRadius);
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 1, 4, 2.5, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 4, 2.5, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
         
         ctx.restore();
     }
