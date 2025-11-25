@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trench Warfare</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <!-- Main Menu -->
+        <div id="main-menu" class="menu">
+            <h1>TRENCH WARFARE</h1>
+            <p class="subtitle">A WWI Strategy Game</p>
+            <button id="start-btn" class="menu-btn">START BATTLE</button>
+            <div class="instructions">
+                <h3>How to Play</h3>
+                <ul>
+                    <li><strong>Draw Trenches:</strong> Click and drag to draw trench lines</li>
+                    <li><strong>Select Units:</strong> Click or drag-select soldiers</li>
+                    <li><strong>Move/Attack:</strong> Right-click to move or charge enemies</li>
+                    <li><strong>Build:</strong> Use the toolbar to place emplacements</li>
+                    <li><strong>Camera:</strong> WASD or arrow keys to pan, scroll to zoom</li>
+                </ul>
+            </div>
+        </div>
+        
+        <!-- Game Over Screen -->
+        <div id="game-over" class="menu hidden">
+            <h1 id="game-over-title">VICTORY!</h1>
+            <p id="game-over-message">You have captured the enemy headquarters!</p>
+            <button id="restart-btn" class="menu-btn">PLAY AGAIN</button>
+        </div>
+        
+        <!-- HUD -->
+        <div id="hud" class="hidden">
+            <div id="resources">
+                <div class="resource">
+                    <span class="resource-icon">👥</span>
+                    <span id="manpower">0</span>
+                </div>
+                <div class="resource">
+                    <span class="resource-icon">⚙️</span>
+                    <span id="supplies">100</span>
+                </div>
+            </div>
+            
+            <div id="toolbar">
+                <button class="tool-btn active" data-tool="select" data-hotkey="1" title="Select Units (1/Q)">
+                    <span>🎯</span>
+                </button>
+                <button class="tool-btn" data-tool="trench" data-hotkey="2" title="Draw Trench (2/T)">
+                    <span>⛏️</span>
+                </button>
+                <button class="tool-btn" data-tool="machinegun" data-hotkey="3" title="Machine Gun Nest (3/M)">
+                    <span>🔫</span>
+                </button>
+                <button class="tool-btn" data-tool="artillery" data-hotkey="4" title="Artillery (4)">
+                    <span>💥</span>
+                </button>
+                <button class="tool-btn" data-tool="barbed" data-hotkey="5" title="Barbed Wire (5/B)">
+                    <span>🪤</span>
+                </button>
+            </div>
+            
+            <div id="tool-name" class="hidden">SELECT</div>
+            
+            <div id="selection-info" class="hidden">
+                <div id="selected-count">0 units selected</div>
+                <div id="selected-actions">
+                    <button id="charge-btn" class="action-btn" title="Order Charge!">⚔️ CHARGE</button>
+                    <button id="retreat-btn" class="action-btn" title="Retreat to Trenches">🏃 RETREAT</button>
+                </div>
+            </div>
+            
+            <div id="train-status">
+                <div class="train-icon">🚂</div>
+                <div id="train-timer">Next train: 30s</div>
+            </div>
+        </div>
+        
+        <!-- Minimap -->
+        <canvas id="minimap" class="hidden"></canvas>
+    </div>
+    
+    <script src="js/game.js" type="module"></script>
+</body>
+</html>
+

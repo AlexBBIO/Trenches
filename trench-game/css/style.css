@@ -1,0 +1,394 @@
+/* === FONTS === */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Source+Sans+Pro:wght@400;600;700&display=swap');
+
+/* === CSS VARIABLES - Dark WW1 Style === */
+:root {
+    --color-bg: #1a1a10;
+    --color-khaki: #8a7a5a;
+    --color-khaki-dark: #5a4a3a;
+    --color-mud: #4a3a2a;
+    --color-mud-dark: #2a1a0a;
+    --color-olive: #4a5a3a;
+    --color-blood: #6a0000;
+    --color-ui-bg: rgba(30, 25, 15, 0.95);
+    --color-ui-border: #6a5a4a;
+    --color-ui-text: #c0b090;
+    --color-ui-accent: #d4a030;
+    --color-enemy: #6a5040;
+    --color-ally: #4a6a3a;
+    --font-heading: 'Bebas Neue', sans-serif;
+    --font-body: 'Source Sans Pro', sans-serif;
+}
+
+/* === RESET === */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: var(--color-bg);
+    overflow: hidden;
+    font-family: var(--font-body);
+    color: var(--color-ui-text);
+}
+
+/* === GAME CONTAINER === */
+#game-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+}
+
+#game-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+}
+
+/* === MENUS === */
+.menu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--color-ui-bg);
+    border: 4px solid var(--color-ui-border);
+    padding: 40px 60px;
+    text-align: center;
+    z-index: 100;
+    box-shadow: 0 0 60px rgba(0, 0, 0, 0.8), inset 0 0 30px rgba(0, 0, 0, 0.5);
+}
+
+.menu h1 {
+    font-family: var(--font-heading);
+    font-size: 72px;
+    letter-spacing: 8px;
+    color: var(--color-ui-accent);
+    text-shadow: 4px 4px 0 #2a1a0a;
+    margin-bottom: 10px;
+}
+
+.menu .subtitle {
+    font-size: 18px;
+    color: var(--color-ui-text);
+    margin-bottom: 30px;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+}
+
+.menu-btn {
+    font-family: var(--font-heading);
+    font-size: 28px;
+    letter-spacing: 3px;
+    padding: 15px 50px;
+    background: linear-gradient(180deg, #5a4a3a 0%, #3a2a1a 100%);
+    border: 3px solid #8a7a5a;
+    color: #e0d0b0;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin: 20px 0;
+    text-shadow: 2px 2px 0 #1a1a0a;
+}
+
+.menu-btn:hover {
+    background: linear-gradient(180deg, #7a6a4a 0%, #4a3a2a 100%);
+    transform: scale(1.05);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+    border-color: #a0906a;
+}
+
+.instructions {
+    text-align: left;
+    margin-top: 30px;
+    padding: 20px;
+    background: rgba(0, 0, 0, 0.4);
+    border: 2px solid #5a4a3a;
+}
+
+.instructions h3 {
+    font-family: var(--font-heading);
+    font-size: 24px;
+    color: var(--color-ui-accent);
+    margin-bottom: 15px;
+    letter-spacing: 2px;
+}
+
+.instructions ul {
+    list-style: none;
+}
+
+.instructions li {
+    margin: 10px 0;
+    padding-left: 20px;
+    position: relative;
+    color: #b0a080;
+}
+
+.instructions li::before {
+    content: "►";
+    position: absolute;
+    left: 0;
+    color: var(--color-ui-accent);
+}
+
+.instructions strong {
+    color: #d0c090;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* === HUD === */
+#hud {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+}
+
+#hud > * {
+    pointer-events: auto;
+}
+
+#resources {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    display: flex;
+    gap: 15px;
+}
+
+.resource {
+    background: var(--color-ui-bg);
+    border: 2px solid var(--color-ui-border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--color-ui-text);
+}
+
+.resource-icon {
+    font-size: 20px;
+}
+
+/* === TOOLBAR === */
+#toolbar {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    background: var(--color-ui-bg);
+    border: 3px solid var(--color-ui-border);
+    padding: 12px;
+    box-shadow: 0 5px 30px rgba(0, 0, 0, 0.5);
+    z-index: 10;
+}
+
+.tool-btn {
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 100%);
+    border: 3px solid #555;
+    color: var(--color-ui-text);
+    font-size: 28px;
+    cursor: pointer;
+    transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+.tool-btn::after {
+    content: attr(data-hotkey);
+    position: absolute;
+    bottom: 2px;
+    right: 4px;
+    font-size: 10px;
+    color: #888;
+    font-family: var(--font-body);
+}
+
+.tool-btn:hover {
+    background: linear-gradient(180deg, #5a5a5a 0%, #3a3a3a 100%);
+    border-color: var(--color-khaki);
+    transform: scale(1.05);
+}
+
+.tool-btn.active {
+    background: linear-gradient(180deg, #8a7a5a 0%, #5a4a3a 100%);
+    border-color: var(--color-ui-accent);
+    color: #fff;
+    box-shadow: 0 0 10px rgba(212, 160, 48, 0.4);
+    transform: scale(1.05);
+}
+
+.tool-btn.active::before {
+    content: '';
+    position: absolute;
+    top: -3px;
+    left: -3px;
+    right: -3px;
+    bottom: -3px;
+    border: 2px solid var(--color-ui-accent);
+}
+
+.tool-btn.flash {
+    animation: tool-flash 0.3s ease-out;
+}
+
+@keyframes tool-flash {
+    0% { background: #fff; transform: scale(1.2); }
+    100% { transform: scale(1.08); }
+}
+
+/* === SELECTION INFO === */
+#selection-info {
+    position: absolute;
+    bottom: 110px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-ui-bg);
+    border: 2px solid var(--color-ui-border);
+    padding: 12px 20px;
+    text-align: center;
+}
+
+#selected-count {
+    font-size: 14px;
+    margin-bottom: 10px;
+    color: var(--color-ui-text);
+}
+
+#selected-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.action-btn {
+    padding: 8px 16px;
+    font-family: var(--font-heading);
+    font-size: 16px;
+    letter-spacing: 1px;
+    border: 2px solid;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+#charge-btn {
+    background: linear-gradient(180deg, #8a3030 0%, #5a1010 100%);
+    border-color: #aa5050;
+    color: #e0c0c0;
+    text-shadow: 1px 1px 0 #2a0000;
+}
+
+#charge-btn:hover {
+    background: linear-gradient(180deg, #aa4040 0%, #7a2020 100%);
+    transform: scale(1.05);
+}
+
+#retreat-btn {
+    background: linear-gradient(180deg, #4a5a3a 0%, #2a3a1a 100%);
+    border-color: #6a7a5a;
+    color: #c0d0b0;
+    text-shadow: 1px 1px 0 #1a2a0a;
+}
+
+#retreat-btn:hover {
+    background: linear-gradient(180deg, #5a6a4a 0%, #3a4a2a 100%);
+    transform: scale(1.05);
+}
+
+/* === TRAIN STATUS === */
+#train-status {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: var(--color-ui-bg);
+    border: 2px solid var(--color-ui-border);
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.train-icon {
+    font-size: 20px;
+    animation: train-bounce 0.5s ease-in-out infinite;
+}
+
+@keyframes train-bounce {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(3px); }
+}
+
+#train-timer {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-ui-text);
+}
+
+/* === TOOL NAME POPUP === */
+#tool-name {
+    position: absolute;
+    bottom: 100px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-ui-bg);
+    color: var(--color-ui-accent);
+    padding: 8px 20px;
+    font-family: var(--font-heading);
+    font-size: 24px;
+    letter-spacing: 3px;
+    border: 2px solid var(--color-ui-accent);
+    pointer-events: none;
+    animation: tool-name-fade 1s ease-out forwards;
+}
+
+@keyframes tool-name-fade {
+    0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+    70% { opacity: 1; }
+    100% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+}
+
+/* === MINIMAP === */
+#minimap {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    width: 180px;
+    height: 135px;
+    background: #2a2a1a;
+    border: 2px solid var(--color-ui-border);
+    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.5);
+}
+
+/* === CURSOR STATES === */
+#game-canvas.cursor-select { cursor: default; }
+#game-canvas.cursor-trench { cursor: crosshair; }
+#game-canvas.cursor-build { cursor: cell; }
+#game-canvas.cursor-attack { cursor: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><text y="18" font-size="18">⚔️</text></svg>'), crosshair; }
+
+/* === ANIMATIONS === */
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.6; }
+}
+
+.pulse {
+    animation: pulse 1s ease-in-out infinite;
+}
+
