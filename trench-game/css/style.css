@@ -483,9 +483,9 @@ body {
     padding: 10px 14px;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
-    min-width: 180px;
+    min-width: 200px;
 }
 
 .train-header {
@@ -505,95 +505,183 @@ body {
     75% { transform: translateX(-1px) rotate(-0.5deg); }
 }
 
-#train-timer {
-    font-size: 13px;
+
+/* === TRAIN ORDER FORM === */
+#train-title {
+    font-family: var(--font-military);
+    font-size: 12px;
     font-weight: 600;
-    color: var(--color-ui-text);
-    font-family: var(--font-military);
-    letter-spacing: 1px;
+    letter-spacing: 2px;
+    color: var(--color-gold);
 }
 
-/* === CARGO SLIDER === */
-#train-cargo {
+#train-order-form {
     border-top: 1px solid var(--color-mud);
-    padding-top: 8px;
-}
-
-.cargo-slider-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 10px;
-    color: var(--color-khaki);
-    font-family: var(--font-military);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    margin-bottom: 4px;
-}
-
-#cargo-slider {
-    width: 100%;
-    height: 8px;
-    -webkit-appearance: none;
-    appearance: none;
-    background: linear-gradient(90deg, 
-        var(--color-olive) 0%, 
-        var(--color-olive) 50%,
-        var(--color-rust) 50%,
-        var(--color-rust) 100%);
-    border-radius: 4px;
-    cursor: pointer;
-    border: 1px solid var(--color-mud);
-}
-
-#cargo-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 16px;
-    height: 16px;
-    background: linear-gradient(180deg, var(--color-khaki-light) 0%, var(--color-khaki-dark) 100%);
-    border: 2px solid var(--color-gold);
-    border-radius: 2px;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-#cargo-slider::-moz-range-thumb {
-    width: 14px;
-    height: 14px;
-    background: linear-gradient(180deg, var(--color-khaki-light) 0%, var(--color-khaki-dark) 100%);
-    border: 2px solid var(--color-gold);
-    border-radius: 2px;
-    cursor: pointer;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
-}
-
-#cargo-preview {
-    display: flex;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--color-ui-text);
-    font-family: var(--font-military);
+    padding-top: 10px;
     margin-top: 6px;
-    padding: 4px 0;
-    border-top: 1px dashed var(--color-mud-light);
 }
 
-#cargo-preview span {
+.order-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.order-row label {
+    font-size: 12px;
+    font-family: var(--font-military);
+    color: var(--color-ui-text);
+    min-width: 85px;
+}
+
+.order-controls {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 4px;
 }
 
-#preview-soldiers {
-    color: var(--color-olive-light);
+.order-btn {
+    width: 22px;
+    height: 22px;
+    background: linear-gradient(180deg, #4a4a4a 0%, #2a2a2a 100%);
+    border: 1px solid #555;
+    color: var(--color-ui-text);
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.1s;
 }
 
-#preview-workers {
+.order-btn:hover {
+    background: linear-gradient(180deg, #5a5a5a 0%, #3a3a3a 100%);
+    border-color: var(--color-khaki);
+    color: #fff;
+}
+
+.order-btn:active {
+    transform: scale(0.95);
+}
+
+#train-order-form input[type="number"] {
+    width: 40px;
+    height: 22px;
+    background: var(--color-mud-dark);
+    border: 1px solid var(--color-mud);
+    color: var(--color-ui-text-light);
+    font-family: var(--font-military);
+    font-size: 13px;
+    text-align: center;
+    -moz-appearance: textfield;
+}
+
+#train-order-form input[type="number"]::-webkit-outer-spin-button,
+#train-order-form input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+#train-order-form input[type="number"]:focus {
+    outline: none;
+    border-color: var(--color-gold);
+}
+
+.order-cost {
+    font-size: 11px;
+    font-family: var(--font-military);
     color: var(--color-khaki);
+    min-width: 24px;
+    text-align: right;
 }
 
-#preview-shells {
-    color: var(--color-rust);
+.order-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    margin-top: 4px;
+    border-top: 1px dashed var(--color-mud);
+    font-family: var(--font-military);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-ui-text-light);
+}
+
+#order-total-cost {
+    color: var(--color-gold);
+}
+
+.order-submit-btn {
+    width: 100%;
+    padding: 10px;
+    margin-top: 8px;
+    font-family: var(--font-heading);
+    font-size: 16px;
+    letter-spacing: 3px;
+    background: linear-gradient(180deg, var(--color-olive-light) 0%, var(--color-olive) 50%, var(--color-olive-dark) 100%);
+    border: 2px solid var(--color-olive-light);
+    color: #fff;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.5);
+}
+
+.order-submit-btn:hover:not(.disabled) {
+    background: linear-gradient(180deg, #7a9a5a 0%, #5a7a3a 50%, #3a5a1a 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.4);
+}
+
+.order-submit-btn:active:not(.disabled) {
+    transform: translateY(0);
+}
+
+.order-submit-btn.disabled {
+    background: linear-gradient(180deg, #4a4a4a 0%, #3a3a3a 50%, #2a2a2a 100%);
+    border-color: #555;
+    color: #666;
+    cursor: not-allowed;
+}
+
+.order-submit-btn.error {
+    animation: btn-error 0.3s ease-out;
+}
+
+@keyframes btn-error {
+    0%, 100% { background-color: inherit; }
+    50% { background: #8a3030; border-color: #aa5050; }
+}
+
+/* === TRAIN PENDING STATUS === */
+#train-pending {
+    text-align: center;
+    padding: 15px 0;
+    border-top: 1px solid var(--color-mud);
+    margin-top: 6px;
+}
+
+.pending-text {
+    font-family: var(--font-military);
+    font-size: 11px;
+    color: var(--color-khaki);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+}
+
+.pending-timer {
+    font-family: var(--font-heading);
+    font-size: 32px;
+    color: var(--color-gold);
+    text-shadow: 2px 2px 0 rgba(0, 0, 0, 0.5);
+    animation: timer-pulse 1s ease-in-out infinite;
+}
+
+@keyframes timer-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
 }
 
 /* === TOOL NAME POPUP === */

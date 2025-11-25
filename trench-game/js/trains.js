@@ -1,56 +1,85 @@
 // Trains Module - Train logistics and reinforcement system
 import { CONFIG } from './game.js';
 
+// Train order costs (in supplies)
+export const TRAIN_COSTS = {
+    soldier: 8,
+    worker: 10,
+    shell: 3
+};
+
+// Time for ordered train to arrive (in seconds)
+export const TRAIN_ARRIVAL_TIME = 60;
+
 export class TrainSystem {
     constructor(game) {
         this.game = game;
         this.trains = [];
         this.trainIdCounter = 0;
         
-        // Timer for player trains
-        this.playerTrainTimer = 0;
+        // Enemy train timer (player trains are now on-demand)
         this.enemyTrainTimer = 0;
-        
-        // Train interval can vary
-        this.playerInterval = CONFIG.TRAIN_INTERVAL;
         this.enemyInterval = CONFIG.TRAIN_INTERVAL * 1.2; // Enemy slightly slower
         
-        // Cargo ratio (0-100: 0 = all shells, 100 = all soldiers)
-        this.cargoRatio = 70; // Default 70% soldiers, 30% shells
-        
-        // Total train capacity for balancing
-        this.totalCapacity = 20; // Total "units" of cargo space
-        this.workersPerTrain = CONFIG.WORKERS_PER_TRAIN; // Workers always fixed
+        // Pending player train orders
+        this.pendingOrder = null; // { soldiers, workers, shells, arrivalTime }
     }
     
-    // Calculate cargo based on ratio slider
-    getCargoAmounts(isPlayer) {
-        if (!isPlayer) {
-            // Enemy gets fixed amounts
-            return {
-                soldiers: CONFIG.SOLDIERS_PER_TRAIN,
-                workers: CONFIG.WORKERS_PER_TRAIN,
-                shells: 8 // Enemy also gets shells
-            };
+    // Calculate the cost for a train order
+    calculateOrderCost(soldiers, workers, shells) {
+        return (soldiers * TRAIN_COSTS.soldier) + 
+               (workers * TRAIN_COSTS.worker) + 
+               (shells * TRAIN_COSTS.shell);
+    }
+    
+    // Check if player can afford an order
+    canAffordOrder(soldiers, workers, shells) {
+        const cost = this.calculateOrderCost(soldiers, workers, shells);
+        return this.game.resources.supplies >= cost;
+    }
+    
+    // Order a train with specific cargo
+    orderTrain(soldiers, workers, shells) {
+        // Can't order if one is already pending
+        if (this.pendingOrder) {
+            return { success: false, reason: 'Train already ordered' };
         }
         
-        // Player cargo based on slider
-        // Ratio determines split: 100% = all soldiers, 0% = all shells
-        const ratio = this.cargoRatio / 100;
-        const availableCapacity = this.totalCapacity - this.workersPerTrain;
+        // Validate quantities
+        soldiers = Math.max(0, Math.floor(soldiers));
+        workers = Math.max(0, Math.floor(workers));
+        shells = Math.max(0, Math.floor(shells));
         
-        const soldiers = Math.round(availableCapacity * ratio);
-        const shells = availableCapacity - soldiers; // Remaining capacity goes to shells
+        // Must order something
+        if (soldiers + workers + shells === 0) {
+            return { success: false, reason: 'Must order at least one item' };
+        }
         
-        return {
-            soldiers: Math.max(0, soldiers),
-            workers: this.workersPerTrain,
-            shells: Math.max(0, shells)
+        const cost = this.calculateOrderCost(soldiers, workers, shells);
+        
+        // Check if can afford
+        if (!this.game.spendSupplies(cost)) {
+            return { success: false, reason: 'Not enough supplies' };
+        }
+        
+        // Schedule the train
+        this.pendingOrder = {
+            soldiers,
+            workers,
+            shells,
+            arrivalTime: TRAIN_ARRIVAL_TIME
         };
+        
+        return { success: true, cost };
     }
     
-    setCargoRatio(ratio) {
-        this.cargoRatio = Math.max(0, Math.min(100, ratio));
+    // Get cargo amounts for enemy trains (unchanged)
+    getCargoAmounts() {
+        return {
+            soldiers: CONFIG.SOLDIERS_PER_TRAIN,
+            workers: CONFIG.WORKERS_PER_TRAIN,
+            shells: 8
+        };
     }
     
     // Resupply enemy artillery directly from trains
@@ -76,26 +105,30 @@ export class TrainSystem {
     }
     
     start() {
-        // Schedule first trains
-        this.playerTrainTimer = this.playerInterval / 2; // First train halfway
+        // Schedule first enemy train
         this.enemyTrainTimer = this.enemyInterval / 2;
+        this.pendingOrder = null;
     }
     
     update(dt) {
-        // Update timers
-        this.playerTrainTimer -= dt * 1000;
+        // Update enemy train timer
         this.enemyTrainTimer -= dt * 1000;
-        
-        // Spawn player train
-        if (this.playerTrainTimer <= 0) {
-            this.spawnTrain(CONFIG.TEAM_PLAYER);
-            this.playerTrainTimer = this.playerInterval;
-        }
         
         // Spawn enemy train
         if (this.enemyTrainTimer <= 0) {
             this.spawnTrain(CONFIG.TEAM_ENEMY);
             this.enemyTrainTimer = this.enemyInterval;
+        }
+        
+        // Update pending player order
+        if (this.pendingOrder) {
+            this.pendingOrder.arrivalTime -= dt;
+            
+            if (this.pendingOrder.arrivalTime <= 0) {
+                // Spawn the player's ordered train
+                this.spawnPlayerTrain(this.pendingOrder);
+                this.pendingOrder = null;
+            }
         }
         
         // Update existing trains
@@ -108,22 +141,40 @@ export class TrainSystem {
                 this.trains.splice(i, 1);
             }
         }
-        
-        // Update UI timer
-        const timeLeft = Math.ceil(this.playerTrainTimer / 1000);
-        document.getElementById('train-timer').textContent = `Next train: ${timeLeft}s`;
     }
     
+    // Spawn a player train with specific cargo from an order
+    spawnPlayerTrain(order) {
+        const train = {
+            id: this.trainIdCounter++,
+            team: CONFIG.TEAM_PLAYER,
+            x: -200,
+            y: CONFIG.MAP_HEIGHT / 2,
+            targetX: 50,
+            speed: 150,
+            state: 'arriving',
+            stopTime: 0,
+            maxStopTime: 3,
+            soldiers: order.soldiers,
+            workers: order.workers,
+            shells: order.shells,
+            unloaded: false,
+            wagons: 3
+        };
+        
+        this.trains.push(train);
+    }
+    
+    // Spawn enemy train (automatic)
     spawnTrain(team) {
-        const isPlayer = team === CONFIG.TEAM_PLAYER;
-        const cargo = this.getCargoAmounts(isPlayer);
+        const cargo = this.getCargoAmounts();
         
         const train = {
             id: this.trainIdCounter++,
             team,
-            x: isPlayer ? -200 : CONFIG.MAP_WIDTH + 200,
+            x: CONFIG.MAP_WIDTH + 200,
             y: CONFIG.MAP_HEIGHT / 2,
-            targetX: isPlayer ? 50 : CONFIG.MAP_WIDTH - 50,
+            targetX: CONFIG.MAP_WIDTH - 50,
             speed: 150,
             state: 'arriving', // arriving, stopped, departing, departed
             stopTime: 0,

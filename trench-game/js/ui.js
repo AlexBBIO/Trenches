@@ -1,5 +1,6 @@
 // UI Module - HUD, selection, menus
 import { GameState, CONFIG } from './game.js';
+import { TRAIN_COSTS } from './trains.js';
 
 export class UI {
     constructor(game) {
@@ -20,11 +21,15 @@ export class UI {
         this.toolbar = document.getElementById('toolbar');
         this.toolButtons = document.querySelectorAll('.tool-btn');
         
-        // Cargo slider elements
-        this.cargoSlider = document.getElementById('cargo-slider');
-        this.previewSoldiers = document.getElementById('preview-soldiers');
-        this.previewWorkers = document.getElementById('preview-workers');
-        this.previewShells = document.getElementById('preview-shells');
+        // Train order elements
+        this.orderSoldiers = document.getElementById('order-soldiers');
+        this.orderWorkers = document.getElementById('order-workers');
+        this.orderShells = document.getElementById('order-shells');
+        this.orderTotalCost = document.getElementById('order-total-cost');
+        this.orderTrainBtn = document.getElementById('order-train-btn');
+        this.trainOrderForm = document.getElementById('train-order-form');
+        this.trainPending = document.getElementById('train-pending');
+        this.trainTimer = document.getElementById('train-timer');
         
         // Setup event listeners
         this.setupEventListeners();
@@ -73,29 +78,130 @@ export class UI {
             this.handleMinimapClick(e);
         });
         
-        // Cargo slider
-        if (this.cargoSlider) {
-            this.cargoSlider.addEventListener('input', (e) => {
-                const ratio = parseInt(e.target.value);
-                this.game.trainSystem.setCargoRatio(ratio);
-                this.updateCargoPreview();
+        // Train order form - number inputs
+        [this.orderSoldiers, this.orderWorkers, this.orderShells].forEach(input => {
+            if (input) {
+                input.addEventListener('input', () => this.updateOrderCost());
+                input.addEventListener('change', () => this.updateOrderCost());
+            }
+        });
+        
+        // Train order form - plus/minus buttons
+        document.querySelectorAll('.order-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const targetId = e.target.dataset.target;
+                const input = document.getElementById(targetId);
+                if (!input) return;
+                
+                const isPlus = e.target.classList.contains('plus');
+                const currentVal = parseInt(input.value) || 0;
+                const max = parseInt(input.max) || 99;
+                const min = parseInt(input.min) || 0;
+                
+                if (isPlus) {
+                    input.value = Math.min(max, currentVal + 1);
+                } else {
+                    input.value = Math.max(min, currentVal - 1);
+                }
+                
+                this.updateOrderCost();
             });
+        });
+        
+        // Order train button
+        if (this.orderTrainBtn) {
+            this.orderTrainBtn.addEventListener('click', () => this.handleOrderTrain());
         }
     }
     
-    updateCargoPreview() {
+    // Update the cost display for train orders
+    updateOrderCost() {
+        if (!this.orderSoldiers || !this.orderWorkers || !this.orderShells) return;
+        
+        const soldiers = parseInt(this.orderSoldiers.value) || 0;
+        const workers = parseInt(this.orderWorkers.value) || 0;
+        const shells = parseInt(this.orderShells.value) || 0;
+        
+        // Update individual costs
+        const costSoldiers = document.getElementById('cost-soldiers');
+        const costWorkers = document.getElementById('cost-workers');
+        const costShells = document.getElementById('cost-shells');
+        
+        if (costSoldiers) costSoldiers.textContent = soldiers * TRAIN_COSTS.soldier;
+        if (costWorkers) costWorkers.textContent = workers * TRAIN_COSTS.worker;
+        if (costShells) costShells.textContent = shells * TRAIN_COSTS.shell;
+        
+        // Update total
+        const total = (soldiers * TRAIN_COSTS.soldier) + 
+                      (workers * TRAIN_COSTS.worker) + 
+                      (shells * TRAIN_COSTS.shell);
+        
+        if (this.orderTotalCost) {
+            this.orderTotalCost.textContent = `${total} ⚙️`;
+        }
+        
+        // Update button state based on affordability
+        if (this.orderTrainBtn) {
+            const canAfford = this.game.resources.supplies >= total && total > 0;
+            this.orderTrainBtn.disabled = !canAfford;
+            this.orderTrainBtn.classList.toggle('disabled', !canAfford);
+        }
+    }
+    
+    // Handle ordering a train
+    handleOrderTrain() {
         if (!this.game.trainSystem) return;
         
-        const cargo = this.game.trainSystem.getCargoAmounts(true);
+        const soldiers = parseInt(this.orderSoldiers.value) || 0;
+        const workers = parseInt(this.orderWorkers.value) || 0;
+        const shells = parseInt(this.orderShells.value) || 0;
         
-        if (this.previewSoldiers) {
-            this.previewSoldiers.textContent = `👥 ${cargo.soldiers}`;
+        const result = this.game.trainSystem.orderTrain(soldiers, workers, shells);
+        
+        if (result.success) {
+            // Show pending status, hide order form
+            this.showTrainPending();
+        } else {
+            // Could show an error message, but for now just flash the button
+            this.orderTrainBtn.classList.add('error');
+            setTimeout(() => this.orderTrainBtn.classList.remove('error'), 300);
         }
-        if (this.previewWorkers) {
-            this.previewWorkers.textContent = `🔧 ${cargo.workers}`;
-        }
-        if (this.previewShells) {
-            this.previewShells.textContent = `💣 ${cargo.shells}`;
+    }
+    
+    // Show the pending train status
+    showTrainPending() {
+        if (this.trainOrderForm) this.trainOrderForm.classList.add('hidden');
+        if (this.trainPending) this.trainPending.classList.remove('hidden');
+    }
+    
+    // Show the order form (when no train is pending)
+    showTrainOrderForm() {
+        if (this.trainOrderForm) this.trainOrderForm.classList.remove('hidden');
+        if (this.trainPending) this.trainPending.classList.add('hidden');
+        this.updateOrderCost();
+    }
+    
+    // Update train pending timer display
+    updateTrainStatus() {
+        const trainSystem = this.game.trainSystem;
+        if (!trainSystem) return;
+        
+        if (trainSystem.pendingOrder) {
+            // Show pending status
+            if (this.trainOrderForm && !this.trainOrderForm.classList.contains('hidden')) {
+                this.showTrainPending();
+            }
+            
+            // Update timer
+            const timeLeft = Math.ceil(trainSystem.pendingOrder.arrivalTime);
+            if (this.trainTimer) {
+                this.trainTimer.textContent = `${timeLeft}s`;
+            }
+        } else {
+            // No pending order, show the form
+            if (this.trainPending && !this.trainPending.classList.contains('hidden')) {
+                this.showTrainOrderForm();
+            }
         }
     }
     
@@ -123,8 +229,8 @@ export class UI {
         this.minimap.width = 200;
         this.minimap.height = 150;
         
-        // Initialize cargo preview
-        this.updateCargoPreview();
+        // Initialize train order form
+        this.showTrainOrderForm();
     }
     
     hideHUD() {
@@ -171,6 +277,14 @@ export class UI {
             200, 
             this.game.resources.supplies + this.game.deltaTime * 2
         );
+        
+        // Update train order status
+        this.updateTrainStatus();
+        
+        // Update order button state (in case supplies changed)
+        if (!this.game.trainSystem.pendingOrder) {
+            this.updateOrderCost();
+        }
     }
     
     updateToolbar(activeTool) {

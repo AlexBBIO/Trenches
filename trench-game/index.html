@@ -87,20 +87,45 @@
             <div id="train-status">
                 <div class="train-header">
                     <div class="train-icon">🚂</div>
-                    <div id="train-timer">Next train: 30s</div>
+                    <div id="train-title">ORDER SUPPLIES</div>
                 </div>
-                <div id="train-cargo">
-                    <div class="cargo-slider-label">
-                        <span>Soldiers</span>
-                        <span>Shells</span>
+                <div id="train-order-form">
+                    <div class="order-row">
+                        <label for="order-soldiers">👥 Soldiers</label>
+                        <div class="order-controls">
+                            <button class="order-btn minus" data-target="order-soldiers">−</button>
+                            <input type="number" id="order-soldiers" value="5" min="0" max="20">
+                            <button class="order-btn plus" data-target="order-soldiers">+</button>
+                            <span class="order-cost" id="cost-soldiers">40</span>
+                        </div>
                     </div>
-                    <input type="range" id="cargo-slider" min="0" max="100" value="70" 
-                           title="Adjust soldier/shell ratio for incoming trains">
-                    <div id="cargo-preview">
-                        <span id="preview-soldiers">👥 13</span>
-                        <span id="preview-workers">🔧 2</span>
-                        <span id="preview-shells">💣 5</span>
+                    <div class="order-row">
+                        <label for="order-workers">🔧 Workers</label>
+                        <div class="order-controls">
+                            <button class="order-btn minus" data-target="order-workers">−</button>
+                            <input type="number" id="order-workers" value="2" min="0" max="10">
+                            <button class="order-btn plus" data-target="order-workers">+</button>
+                            <span class="order-cost" id="cost-workers">20</span>
+                        </div>
                     </div>
+                    <div class="order-row">
+                        <label for="order-shells">💣 Shells</label>
+                        <div class="order-controls">
+                            <button class="order-btn minus" data-target="order-shells">−</button>
+                            <input type="number" id="order-shells" value="5" min="0" max="30">
+                            <button class="order-btn plus" data-target="order-shells">+</button>
+                            <span class="order-cost" id="cost-shells">15</span>
+                        </div>
+                    </div>
+                    <div class="order-total">
+                        <span>TOTAL:</span>
+                        <span id="order-total-cost">75 ⚙️</span>
+                    </div>
+                    <button id="order-train-btn" class="order-submit-btn">ORDER TRAIN</button>
+                </div>
+                <div id="train-pending" class="hidden">
+                    <div class="pending-text">Train arriving in:</div>
+                    <div id="train-timer" class="pending-timer">60s</div>
                 </div>
             </div>
         </div>
