@@ -19,10 +19,24 @@ export class TrainSystem {
         
         // Enemy train timer (player trains are now on-demand)
         this.enemyTrainTimer = 0;
-        this.enemyInterval = 60000; // 60 seconds - matches player train arrival time
+        this.baseEnemyInterval = 45000; // Faster base (was 60000)
+        this.enemyInterval = this.baseEnemyInterval;
         
         // Pending player train orders
         this.pendingOrder = null; // { soldiers, workers, shells, arrivalTime }
+    }
+    
+    // Get battle intensity from AI (0-1 scale based on deaths)
+    getBattleIntensity() {
+        const totalDead = this.game.stats.enemiesKilled + this.game.stats.friendliesKilled;
+        return Math.min(1, totalDead / 100);
+    }
+    
+    // Get scaled enemy train interval - faster as battle heats up
+    getScaledEnemyInterval() {
+        const intensity = this.getBattleIntensity();
+        // At 0 intensity: 45s, at max intensity: 25s
+        return this.baseEnemyInterval * (1 - intensity * 0.45);
     }
     
     // Calculate the cost for a train order
@@ -105,8 +119,8 @@ export class TrainSystem {
     }
     
     start() {
-        // Schedule first enemy train
-        this.enemyTrainTimer = this.enemyInterval / 2;
+        // Schedule first enemy train (half the base interval for first train)
+        this.enemyTrainTimer = this.baseEnemyInterval / 2;
         this.pendingOrder = null;
     }
     
@@ -114,10 +128,10 @@ export class TrainSystem {
         // Update enemy train timer
         this.enemyTrainTimer -= dt * 1000;
         
-        // Spawn enemy train
+        // Spawn enemy train - interval scales down as battle heats up
         if (this.enemyTrainTimer <= 0) {
             this.spawnTrain(CONFIG.TEAM_ENEMY);
-            this.enemyTrainTimer = this.enemyInterval;
+            this.enemyTrainTimer = this.getScaledEnemyInterval();
         }
         
         // Update pending player order

@@ -403,10 +403,12 @@ export class UI {
         // Update stats bar
         this.updateStatsBar();
         
-        // Slowly regenerate supplies (with depot bonus)
+        // Regenerate supplies based on battlefield deaths (high command allocates more as battle heats up)
         const depotBonus = this.game.buildingManager.getSupplyRegenBonus(CONFIG.TEAM_PLAYER);
-        const baseRegen = 2;
-        const actualRegen = baseRegen * (1 + depotBonus);
+        const totalDead = this.game.stats.enemiesKilled + this.game.stats.friendliesKilled;
+        const deathBonus = totalDead * 0.02; // +0.02 supply/sec per death on battlefield
+        const baseRegen = 1; // Lower base (was 2)
+        const actualRegen = (baseRegen + deathBonus) * (1 + depotBonus);
         this.game.resources.supplies = Math.min(
             200, 
             this.game.resources.supplies + this.game.deltaTime * actualRegen

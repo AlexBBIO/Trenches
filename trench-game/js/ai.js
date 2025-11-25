@@ -14,14 +14,29 @@ export class AIController {
         // AI state
         this.phase = 'defend';
         this.attackTimer = 0;
-        this.attackInterval = 45;
+        this.baseAttackInterval = 30; // Faster base attacks (was 45)
+        this.attackInterval = this.baseAttackInterval;
         
         // Build timers
         this.buildTimer = 0;
-        this.buildInterval = 15; // Check for new builds every 15 seconds
+        this.buildInterval = 10; // Faster building (was 15)
         
         // Track threats
         this.threatLevel = 0;
+    }
+    
+    // Calculate battle intensity based on total deaths (0-1 scale)
+    // This represents high command allocating more resources as battle heats up
+    getBattleIntensity() {
+        const totalDead = this.game.stats.enemiesKilled + this.game.stats.friendliesKilled;
+        return Math.min(1, totalDead / 100); // Maxes out at 100 deaths
+    }
+    
+    // Get dynamic attack interval that scales with battle intensity
+    getScaledAttackInterval() {
+        const intensity = this.getBattleIntensity();
+        // At 0 intensity: 30s, at max intensity: 18s
+        return this.baseAttackInterval * (1 - intensity * 0.4);
     }
     
     initialize() {
@@ -132,8 +147,9 @@ export class AIController {
             this.think();
         }
         
-        // Periodic attacks
-        if (this.attackTimer >= this.attackInterval) {
+        // Periodic attacks - interval scales down as battle heats up
+        const currentAttackInterval = this.getScaledAttackInterval();
+        if (this.attackTimer >= currentAttackInterval) {
             this.attackTimer = 0;
             this.launchAttack();
         }
@@ -347,9 +363,13 @@ export class AIController {
     launchAttack() {
         const soldiers = this.getIdleSoldiers();
         
-        if (soldiers.length < 5) return;
+        // Lower threshold to launch attack (was 5)
+        if (soldiers.length < 4) return;
         
-        const attackForce = soldiers.slice(0, Math.floor(soldiers.length * 0.6));
+        // Scale attack size with battle intensity - base 75% (was 60%), up to 90% at max intensity
+        const intensity = this.getBattleIntensity();
+        const attackPercent = 0.75 + (intensity * 0.15);
+        const attackForce = soldiers.slice(0, Math.floor(soldiers.length * attackPercent));
         
         for (const soldier of attackForce) {
             soldier.setState(UnitState.CHARGING);

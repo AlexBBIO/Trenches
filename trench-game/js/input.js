@@ -401,6 +401,14 @@ export class Input {
         
         const cost = costs[type];
         
+        // Cap supply depots at 2
+        if (type === 'supply_depot') {
+            const existingDepots = this.game.buildingManager.buildings.filter(
+                b => b.type === 'supply_depot' && b.team === CONFIG.TEAM_PLAYER && !b.destroyed
+            ).length;
+            if (existingDepots >= 2) return; // Can't build more than 2
+        }
+        
         if (this.game.canAfford(cost) && 
             this.game.buildingManager.canPlace(type, this.worldX, this.worldY)) {
             this.game.spendSupplies(cost);

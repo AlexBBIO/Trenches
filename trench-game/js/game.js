@@ -66,7 +66,7 @@ export const CONFIG = {
     
     // Supply Depot
     SUPPLY_DEPOT_SHELL_BONUS: 50,
-    SUPPLY_DEPOT_REGEN_BONUS: 0.5,
+    SUPPLY_DEPOT_REGEN_BONUS: 0.15,
     
     // Mortar
     MORTAR_RANGE: 600,
