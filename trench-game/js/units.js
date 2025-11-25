@@ -1154,21 +1154,18 @@ class Unit {
     updateCharging(dt) {
         const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
         
-        // Find enemy buildings to destroy (prioritize HQ, then artillery, then MGs)
+        // Find nearest enemy building to destroy
         const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
             b.team === enemyTeam && !b.destroyed && !b.isBlueprint
         );
         
-        // Find nearest priority building (HQ > artillery > machinegun)
+        // Find nearest building (simple distance check)
         let targetBuilding = null;
         let targetBuildingDist = Infinity;
         for (const b of enemyBuildings) {
             const dist = this.distanceTo(b.x, b.y);
-            // Priority scoring: HQ gets huge priority, then artillery, then MG
-            const priorityBonus = b.type === 'hq' ? -10000 : (b.type === 'artillery' ? -5000 : 0);
-            const score = dist + priorityBonus;
-            if (score < targetBuildingDist) {
-                targetBuildingDist = score;
+            if (dist < targetBuildingDist) {
+                targetBuildingDist = dist;
                 targetBuilding = b;
             }
         }
