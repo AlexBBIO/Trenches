@@ -317,8 +317,8 @@ class Game {
             const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
             if (dist < splashRadius) {
                 const falloff = 1 - (dist / splashRadius);
-                // Grenades deal 50% damage to units compared to buildings
-                this.combatSystem.dealDamage(unit, damage * falloff * 0.5, effect.source);
+                // Grenades deal 25% damage to units compared to buildings (less effective vs infantry)
+                this.combatSystem.dealDamage(unit, damage * falloff * 0.25, effect.source);
                 unit.suppression = 100; // Full suppression
             }
         }
