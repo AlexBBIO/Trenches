@@ -1096,55 +1096,23 @@ class Unit {
     render(ctx) {
         const isEnemy = this.team === CONFIG.TEAM_ENEMY;
         
-        // Dead units
+        // Dead units - Cannon Fodder style bodies stay on ground
         if (this.state === UnitState.DEAD) {
-            ctx.save();
-            ctx.translate(this.x, this.y);
-            ctx.rotate(Math.PI / 2); // Fallen over
-            ctx.globalAlpha = Math.max(0, 1 - this.deathTime / 2);
-            this.drawUnit(ctx, isEnemy);
-            ctx.restore();
+            this.drawDeadUnit(ctx, isEnemy);
             return;
         }
         
         ctx.save();
         ctx.translate(this.x, this.y);
         
-        // Selection indicator - Cannon Fodder style arrow pointing down
+        // Selection indicator - Classic Cannon Fodder bouncing arrow
         if (this.selected) {
-            // Animated bouncing arrow
-            const bounce = Math.sin(this.animTime * 6) * 2;
-            
-            // Yellow/orange arrow pointing down at unit
-            ctx.fillStyle = CONFIG.COLORS.SELECTION;
-            ctx.beginPath();
-            ctx.moveTo(0, -12 + bounce);           // Arrow tip
-            ctx.lineTo(-5, -20 + bounce);          // Left corner
-            ctx.lineTo(-2, -20 + bounce);          // Left inner
-            ctx.lineTo(-2, -26 + bounce);          // Left top
-            ctx.lineTo(2, -26 + bounce);           // Right top  
-            ctx.lineTo(2, -20 + bounce);           // Right inner
-            ctx.lineTo(5, -20 + bounce);           // Right corner
-            ctx.closePath();
-            ctx.fill();
-            
-            // Darker outline
-            ctx.strokeStyle = '#8a6010';
-            ctx.lineWidth = 1;
-            ctx.stroke();
+            this.drawSelectionArrow(ctx);
         }
         
-        // Health bar - smaller for tiny units
-        if (this.health < this.maxHealth) {
-            const barWidth = 10;
-            const barHeight = 2;
-            const healthPercent = this.health / this.maxHealth;
-            
-            ctx.fillStyle = '#000';
-            ctx.fillRect(-barWidth/2, -12, barWidth, barHeight);
-            
-            ctx.fillStyle = healthPercent > 0.5 ? '#0f0' : healthPercent > 0.25 ? '#ff0' : '#f00';
-            ctx.fillRect(-barWidth/2, -12, barWidth * healthPercent, barHeight);
+        // Health bar - tiny, Cannon Fodder style
+        if (this.health < this.maxHealth && this.state !== UnitState.DEAD) {
+            this.drawHealthBar(ctx);
         }
         
         // Draw the unit
@@ -1153,106 +1121,443 @@ class Unit {
         ctx.restore();
     }
     
-    drawUnit(ctx, isEnemy) {
-        // Dark WW1 Cannon Fodder style - tiny pixelated soldiers
-        const isMoving = this.state === UnitState.MOVING || this.state === UnitState.CHARGING;
-        const legOffset = isMoving ? Math.sin(this.animTime * 15) * 2 : 0;
+    drawSelectionArrow(ctx) {
+        // Classic Cannon Fodder yellow bouncing arrow
+        const bounce = Math.sin(this.animTime * 8) * 3;
+        const pulse = 0.9 + Math.sin(this.animTime * 12) * 0.1;
         
-        // Dark shadow
+        ctx.save();
+        ctx.translate(0, bounce);
+        ctx.scale(pulse, pulse);
+        
+        // Glow effect
+        ctx.fillStyle = CONFIG.COLORS.SELECTION_GLOW;
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -10);
+        ctx.lineTo(-7, -20);
+        ctx.lineTo(-3, -20);
+        ctx.lineTo(-3, -28);
+        ctx.lineTo(3, -28);
+        ctx.lineTo(3, -20);
+        ctx.lineTo(7, -20);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Main arrow
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = CONFIG.COLORS.SELECTION;
+        ctx.beginPath();
+        ctx.moveTo(0, -11);           // Arrow tip
+        ctx.lineTo(-6, -19);          // Left corner
+        ctx.lineTo(-2, -19);          // Left inner
+        ctx.lineTo(-2, -26);          // Left top
+        ctx.lineTo(2, -26);           // Right top  
+        ctx.lineTo(2, -19);           // Right inner
+        ctx.lineTo(6, -19);           // Right corner
+        ctx.closePath();
+        ctx.fill();
+        
+        // Arrow highlight
+        ctx.fillStyle = '#ffee88';
+        ctx.fillRect(-1, -24, 2, 4);
+        ctx.fillRect(-1, -17, 2, 3);
+        
+        // Dark outline
+        ctx.strokeStyle = '#8a6010';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, -11);
+        ctx.lineTo(-6, -19);
+        ctx.lineTo(-2, -19);
+        ctx.lineTo(-2, -26);
+        ctx.lineTo(2, -26);
+        ctx.lineTo(2, -19);
+        ctx.lineTo(6, -19);
+        ctx.closePath();
+        ctx.stroke();
+        
+        ctx.restore();
+    }
+    
+    drawHealthBar(ctx) {
+        const barWidth = 12;
+        const barHeight = 2;
+        const healthPercent = this.health / this.maxHealth;
+        
+        // Background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(-barWidth/2 - 1, -13, barWidth + 2, barHeight + 2);
+        
+        // Health
+        const healthColor = healthPercent > 0.6 ? '#44dd44' : 
+                           healthPercent > 0.3 ? '#dddd44' : '#dd4444';
+        ctx.fillStyle = healthColor;
+        ctx.fillRect(-barWidth/2, -12, barWidth * healthPercent, barHeight);
+    }
+    
+    drawDeadUnit(ctx, isEnemy) {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        // Fade out over time
+        const fadeStart = 8; // Start fading at 8 seconds
+        const alpha = this.deathTime > fadeStart ? 
+            Math.max(0, 1 - (this.deathTime - fadeStart) / 4) : 1;
+        ctx.globalAlpha = alpha;
+        
+        // Random death pose based on unit ID
+        const deathPose = this.id % 4;
+        const flip = this.id % 2 === 0 ? 1 : -1;
+        
+        ctx.scale(flip, 1);
+        
+        // Draw blood pool underneath
+        ctx.fillStyle = CONFIG.COLORS.BLOOD_POOL;
+        const poolSize = 6 + Math.min(this.deathTime * 2, 10);
+        ctx.beginPath();
+        ctx.ellipse(0, 4, poolSize, poolSize * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Draw body based on death pose
+        switch (deathPose) {
+            case 0: // Face down
+                this.drawDeadPoseFaceDown(ctx, isEnemy);
+                break;
+            case 1: // Face up
+                this.drawDeadPoseFaceUp(ctx, isEnemy);
+                break;
+            case 2: // On side
+                this.drawDeadPoseSide(ctx, isEnemy);
+                break;
+            case 3: // Crumpled
+                this.drawDeadPoseCrumpled(ctx, isEnemy);
+                break;
+        }
+        
+        ctx.restore();
+    }
+    
+    drawDeadPoseFaceDown(ctx, isEnemy) {
+        const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
+        const helmetColor = isEnemy ? CONFIG.COLORS.ENEMY_HELMET : CONFIG.COLORS.PLAYER_HELMET;
+        
+        // Legs spread
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(-5, 2, 3, 6);
+        ctx.fillRect(2, 1, 3, 7);
+        
+        // Body
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-4, -3, 8, 7);
+        
+        // Arms out
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-8, -2, 5, 3);
+        ctx.fillRect(4, -1, 5, 3);
+        
+        // Head/helmet
+        ctx.fillStyle = helmetColor;
+        ctx.beginPath();
+        ctx.ellipse(0, -5, 4, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    drawDeadPoseFaceUp(ctx, isEnemy) {
+        const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
+        const skinColor = isEnemy ? CONFIG.COLORS.ENEMY_SKIN : CONFIG.COLORS.PLAYER_SKIN;
+        
+        // Legs
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(-4, 3, 3, 5);
+        ctx.fillRect(1, 2, 3, 6);
+        
+        // Body
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-4, -2, 8, 6);
+        
+        // Arms
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-7, -1, 4, 2);
+        ctx.fillRect(4, 0, 4, 2);
+        
+        // Face
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-2, -5, 5, 4);
+        
+        // Eyes closed (X marks)
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(-1, -4, 1, 1);
+        ctx.fillRect(1, -4, 1, 1);
+    }
+    
+    drawDeadPoseSide(ctx, isEnemy) {
+        const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
+        const skinColor = isEnemy ? CONFIG.COLORS.ENEMY_SKIN : CONFIG.COLORS.PLAYER_SKIN;
+        const helmetColor = isEnemy ? CONFIG.COLORS.ENEMY_HELMET : CONFIG.COLORS.PLAYER_HELMET;
+        
+        // Curled legs
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(2, 2, 6, 3);
+        ctx.fillRect(6, 4, 3, 2);
+        
+        // Body (side view)
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-2, -1, 7, 5);
+        
+        // Arm
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-5, 0, 4, 2);
+        
+        // Head
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-5, -4, 4, 4);
+        
+        // Helmet
+        ctx.fillStyle = helmetColor;
+        ctx.fillRect(-6, -5, 5, 2);
+    }
+    
+    drawDeadPoseCrumpled(ctx, isEnemy) {
+        const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
+        const helmetColor = isEnemy ? CONFIG.COLORS.ENEMY_HELMET : CONFIG.COLORS.PLAYER_HELMET;
+        
+        // Crumpled heap
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(-3, 3, 8, 3);
+        
+        ctx.fillStyle = bodyColor;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Helmet visible
+        ctx.fillStyle = helmetColor;
+        ctx.beginPath();
+        ctx.ellipse(-2, -3, 3, 2, 0.3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    drawUnit(ctx, isEnemy) {
+        // Classic Cannon Fodder style - tiny pixelated soldiers with WWI details
+        const isMoving = this.state === UnitState.MOVING || this.state === UnitState.CHARGING;
+        const isFighting = this.state === UnitState.FIGHTING;
+        const legSpeed = this.state === UnitState.CHARGING ? 20 : 15;
+        const legOffset = isMoving ? Math.sin(this.animTime * legSpeed) * 3 : 0;
+        
+        // Shadow - darker and more defined
         ctx.fillStyle = CONFIG.COLORS.SHADOW;
-        ctx.fillRect(-4, 5, 8, 3);
+        ctx.beginPath();
+        ctx.ellipse(0, 6, 5, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
         
         if (this.type === 'soldier') {
-            const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
-            const skinColor = isEnemy ? CONFIG.COLORS.ENEMY_SKIN : CONFIG.COLORS.PLAYER_SKIN;
-            
-            // Legs (dark, animated when moving)
-            ctx.fillStyle = '#2a2a1a';
-            if (isMoving) {
-                ctx.fillRect(-2 + legOffset, 3, 2, 4);
-                ctx.fillRect(1 - legOffset, 3, 2, 4);
-            } else {
-                ctx.fillRect(-2, 3, 2, 3);
-                ctx.fillRect(1, 3, 2, 3);
-            }
-            
-            // Body/tunic
-            ctx.fillStyle = bodyColor;
-            ctx.fillRect(-3, -2, 7, 6);
-            
-            // Belt
-            ctx.fillStyle = '#3a3a2a';
-            ctx.fillRect(-3, 1, 7, 2);
-            
-            // Head (skin)
-            ctx.fillStyle = skinColor;
-            ctx.fillRect(-2, -5, 5, 4);
-            
-            // Helmet (Brodie style for allies, Stahlhelm for enemy)
-            if (isEnemy) {
-                ctx.fillStyle = '#4a4a3a'; // Grey German helmet
-                ctx.fillRect(-3, -7, 7, 3);
-                ctx.fillRect(-2, -8, 5, 2);
-            } else {
-                ctx.fillStyle = '#3a4a3a'; // Khaki British helmet  
-                ctx.fillRect(-3, -7, 7, 3);
-                ctx.fillRect(-4, -6, 9, 2);
-            }
-            
-            // Rifle
-            ctx.fillStyle = '#3a2a1a';
-            const gunX = this.facing > 0 ? 4 : -7;
-            ctx.fillRect(gunX, -1, 6, 2);
-            ctx.fillStyle = '#2a2a2a';
-            ctx.fillRect(this.facing > 0 ? 8 : -7, -1, 3, 2);
-            
-            // Muzzle flash when shooting
-            if (this.attackCooldown > 0.8 / this.attackRate) {
-                ctx.fillStyle = CONFIG.COLORS.MUZZLE_FLASH;
-                const flashX = this.facing > 0 ? 10 : -9;
-                ctx.fillRect(flashX, -2, 4, 3);
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(flashX + 1, -1, 2, 1);
-            }
-            
+            this.drawSoldier(ctx, isEnemy, isMoving, isFighting, legOffset);
         } else if (this.type === 'worker') {
-            const bodyColor = '#5a5040';
-            const skinColor = CONFIG.COLORS.PLAYER_SKIN;
-            
-            // Legs
-            ctx.fillStyle = '#3a3020';
-            const workAnim = this.state === UnitState.WORKING ? Math.sin(this.animTime * 12) * 2 : legOffset;
-            if (isMoving || this.state === UnitState.WORKING) {
-                ctx.fillRect(-2 + workAnim, 3, 2, 3);
-                ctx.fillRect(1 - workAnim, 3, 2, 3);
-            } else {
-                ctx.fillRect(-2, 3, 2, 3);
-                ctx.fillRect(1, 3, 2, 3);
+            this.drawWorker(ctx, isMoving, legOffset);
+        }
+    }
+    
+    drawSoldier(ctx, isEnemy, isMoving, isFighting, legOffset) {
+        const bodyColor = isEnemy ? CONFIG.COLORS.ENEMY_BODY : CONFIG.COLORS.PLAYER_BODY;
+        const bodyDark = isEnemy ? CONFIG.COLORS.ENEMY_BODY_DARK : CONFIG.COLORS.PLAYER_BODY_DARK;
+        const skinColor = isEnemy ? CONFIG.COLORS.ENEMY_SKIN : CONFIG.COLORS.PLAYER_SKIN;
+        const helmetColor = isEnemy ? CONFIG.COLORS.ENEMY_HELMET : CONFIG.COLORS.PLAYER_HELMET;
+        const webbingColor = CONFIG.COLORS.PLAYER_WEBBING;
+        
+        // Legs (dark, animated when moving)
+        ctx.fillStyle = '#2a2a1a';
+        if (isMoving) {
+            // Animated running legs
+            ctx.fillRect(-3 + legOffset, 3, 3, 5);
+            ctx.fillRect(1 - legOffset, 3, 3, 5);
+            // Boots
+            ctx.fillStyle = '#1a1a0a';
+            ctx.fillRect(-3 + legOffset, 6, 3, 2);
+            ctx.fillRect(1 - legOffset, 6, 3, 2);
+        } else {
+            ctx.fillRect(-3, 3, 3, 4);
+            ctx.fillRect(1, 3, 3, 4);
+            // Boots
+            ctx.fillStyle = '#1a1a0a';
+            ctx.fillRect(-3, 5, 3, 2);
+            ctx.fillRect(1, 5, 3, 2);
+        }
+        
+        // Body/tunic
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-4, -3, 9, 7);
+        
+        // Darker side for depth
+        ctx.fillStyle = bodyDark;
+        ctx.fillRect(-4, -3, 2, 7);
+        
+        // Belt/webbing
+        ctx.fillStyle = webbingColor;
+        ctx.fillRect(-4, 1, 9, 2);
+        // Cross strap
+        ctx.fillRect(this.facing > 0 ? -4 : 2, -3, 2, 6);
+        
+        // Ammo pouches
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-4, 0, 2, 3);
+        ctx.fillRect(3, 0, 2, 3);
+        
+        // Arms
+        const armAngle = isFighting ? Math.sin(this.animTime * 10) * 0.1 : 0;
+        ctx.save();
+        ctx.rotate(armAngle);
+        ctx.fillStyle = bodyColor;
+        if (this.facing > 0) {
+            ctx.fillRect(4, -2, 3, 4);
+        } else {
+            ctx.fillRect(-6, -2, 3, 4);
+        }
+        ctx.restore();
+        
+        // Head (skin)
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-2, -7, 5, 5);
+        
+        // Eyes
+        ctx.fillStyle = '#2a1a0a';
+        ctx.fillRect(this.facing > 0 ? 1 : -1, -5, 1, 1);
+        
+        // Helmet - different styles for each team
+        if (isEnemy) {
+            // German Stahlhelm (M1916)
+            ctx.fillStyle = helmetColor;
+            ctx.fillRect(-3, -9, 7, 3);
+            ctx.fillRect(-4, -8, 9, 2);
+            // Distinctive rim
+            ctx.fillStyle = '#3a3a30';
+            ctx.fillRect(-4, -7, 9, 1);
+            // Front plate detail
+            ctx.fillStyle = '#5a5a4a';
+            ctx.fillRect(0, -9, 2, 2);
+        } else {
+            // British Brodie helmet
+            ctx.fillStyle = helmetColor;
+            ctx.fillRect(-3, -9, 7, 3);
+            // Wide brim
+            ctx.fillRect(-5, -7, 11, 2);
+            // Rim highlight
+            ctx.fillStyle = '#5a6a4a';
+            ctx.fillRect(-4, -8, 9, 1);
+        }
+        
+        // Rifle
+        const rifleRecoil = (this.attackCooldown > 0.8 / this.attackRate) ? -2 : 0;
+        ctx.fillStyle = '#3d2b1f'; // Wood stock
+        const gunX = this.facing > 0 ? 5 + rifleRecoil : -9 - rifleRecoil;
+        ctx.fillRect(gunX, -2, 7, 3);
+        // Metal barrel
+        ctx.fillStyle = '#3a3a3a';
+        ctx.fillRect(this.facing > 0 ? gunX + 5 : gunX - 2, -1, 4, 2);
+        // Bayonet
+        ctx.fillStyle = '#5a5a5a';
+        ctx.fillRect(this.facing > 0 ? gunX + 8 : gunX - 4, 0, 3, 1);
+        
+        // Muzzle flash when shooting
+        if (this.attackCooldown > 0.85 / this.attackRate) {
+            const flashX = this.facing > 0 ? gunX + 10 : gunX - 5;
+            // Bright core
+            ctx.fillStyle = CONFIG.COLORS.MUZZLE_CORE;
+            ctx.fillRect(flashX, -1, 3, 2);
+            // Orange flash
+            ctx.fillStyle = CONFIG.COLORS.MUZZLE_FLASH;
+            ctx.fillRect(flashX - 1, -2, 5, 4);
+            // Smoke puff
+            ctx.fillStyle = 'rgba(100, 90, 70, 0.6)';
+            ctx.fillRect(flashX + 2, -3, 4, 3);
+        }
+    }
+    
+    drawWorker(ctx, isMoving, legOffset) {
+        const bodyColor = '#5a5040';
+        const skinColor = CONFIG.COLORS.PLAYER_SKIN;
+        const workAnim = this.state === UnitState.WORKING ? Math.sin(this.animTime * 12) * 3 : legOffset;
+        
+        // Legs
+        ctx.fillStyle = '#3a3020';
+        if (isMoving || this.state === UnitState.WORKING) {
+            ctx.fillRect(-3 + workAnim, 3, 3, 4);
+            ctx.fillRect(1 - workAnim, 3, 3, 4);
+        } else {
+            ctx.fillRect(-3, 3, 3, 4);
+            ctx.fillRect(1, 3, 3, 4);
+        }
+        // Boots
+        ctx.fillStyle = '#2a2010';
+        ctx.fillRect(-3, 5, 3, 2);
+        ctx.fillRect(1, 5, 3, 2);
+        
+        // Body - worker's tunic
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-4, -2, 9, 6);
+        
+        // Suspenders
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-3, -2, 2, 5);
+        ctx.fillRect(2, -2, 2, 5);
+        
+        // Arms
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(-6, -1, 3, 3);
+        ctx.fillRect(4, -1, 3, 3);
+        
+        // Hands
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-6, 1, 2, 2);
+        ctx.fillRect(5, 1, 2, 2);
+        
+        // Head
+        ctx.fillStyle = skinColor;
+        ctx.fillRect(-2, -6, 5, 5);
+        
+        // Simple face
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(0, -4, 1, 1);
+        
+        // Flat cap
+        ctx.fillStyle = '#3a3020';
+        ctx.fillRect(-3, -7, 7, 2);
+        // Cap brim
+        ctx.fillRect(-4, -6, 9, 1);
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-2, -8, 5, 2);
+        
+        // Shovel/tool
+        const shovelAngle = this.state === UnitState.WORKING ? 
+            Math.sin(this.animTime * 10) * 0.8 : 0.3;
+        ctx.save();
+        ctx.translate(5, 0);
+        ctx.rotate(shovelAngle);
+        // Handle
+        ctx.fillStyle = '#4a3a2a';
+        ctx.fillRect(-1, -4, 3, 14);
+        // Blade
+        ctx.fillStyle = '#6a6a6a';
+        ctx.beginPath();
+        ctx.moveTo(-2, 8);
+        ctx.lineTo(4, 8);
+        ctx.lineTo(3, 14);
+        ctx.lineTo(-1, 14);
+        ctx.closePath();
+        ctx.fill();
+        // Blade edge highlight
+        ctx.fillStyle = '#8a8a8a';
+        ctx.fillRect(-1, 8, 4, 1);
+        ctx.restore();
+        
+        // Digging effect when working
+        if (this.state === UnitState.WORKING && Math.sin(this.animTime * 10) > 0.5) {
+            ctx.fillStyle = CONFIG.COLORS.MUD;
+            for (let i = 0; i < 3; i++) {
+                const px = 8 + Math.random() * 6;
+                const py = 2 + Math.random() * 4;
+                ctx.fillRect(px, py, 2, 2);
             }
-            
-            // Body
-            ctx.fillStyle = bodyColor;
-            ctx.fillRect(-3, -1, 7, 5);
-            
-            // Head
-            ctx.fillStyle = skinColor;
-            ctx.fillRect(-2, -4, 5, 4);
-            
-            // Flat cap
-            ctx.fillStyle = '#3a3020';
-            ctx.fillRect(-2, -5, 5, 2);
-            ctx.fillRect(-3, -4, 7, 1);
-            
-            // Shovel
-            const shovelAngle = this.state === UnitState.WORKING ? 
-                Math.sin(this.animTime * 10) * 0.6 : 0.2;
-            ctx.save();
-            ctx.rotate(shovelAngle);
-            ctx.fillStyle = '#4a3a2a';
-            ctx.fillRect(4, -3, 2, 10);
-            ctx.fillStyle = '#6a6a6a';
-            ctx.fillRect(3, 5, 4, 4);
-            ctx.restore();
         }
     }
 }

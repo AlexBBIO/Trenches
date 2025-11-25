@@ -1,4 +1,5 @@
 // Renderer Module - Canvas drawing and camera management
+// WWI Cannon Fodder style rendering
 import { CONFIG } from './game.js';
 
 export class Renderer {
@@ -13,7 +14,7 @@ export class Renderer {
             y: CONFIG.MAP_HEIGHT / 2,
             zoom: 1,
             minZoom: 0.3,
-            maxZoom: 2
+            maxZoom: 2.5
         };
         
         // Viewport dimensions
@@ -22,6 +23,16 @@ export class Renderer {
         
         // Terrain noise (pre-generated for performance)
         this.terrainCanvas = null;
+        this.debrisPositions = [];
+        this.craterPositions = [];
+        this.deadTreePositions = [];
+        
+        // Animation time for effects
+        this.time = 0;
+        
+        // Blood stains that persist on the terrain
+        this.bloodStains = [];
+        
         this.generateTerrain();
     }
     
@@ -41,24 +52,33 @@ export class Renderer {
         // Disable image smoothing for pixel-perfect look
         tctx.imageSmoothingEnabled = false;
         
-        // Create dithered grass pattern
+        // Base grass layer with dithering
         this.drawDitheredGrass(tctx);
         
         // No man's land (muddy strip in the middle)
-        const noMansLandWidth = 400;
+        const noMansLandWidth = 450;
         const centerX = CONFIG.MAP_WIDTH / 2;
         
-        // Draw dithered mud
+        // Draw dithered mud for no man's land
         this.drawDitheredMud(tctx, centerX, noMansLandWidth);
         
-        // Crater patterns in no man's land
+        // Add shell craters with variety
         this.addCraters(tctx, centerX, noMansLandWidth);
+        
+        // Add debris scattered across no man's land
+        this.addDebris(tctx, centerX, noMansLandWidth);
         
         // Train tracks on both sides
         this.drawTrainTracks(tctx);
         
-        // Add trees with shadows
+        // Add trees with shadows - mix of alive and dead
         this.addVegetation(tctx);
+        
+        // Add dead trees in no man's land
+        this.addDeadTrees(tctx, centerX, noMansLandWidth);
+        
+        // Add ruined structures
+        this.addRuinedStructures(tctx, centerX, noMansLandWidth);
     }
     
     drawDitheredGrass(ctx) {
@@ -67,27 +87,46 @@ export class Renderer {
             CONFIG.COLORS.GRASS_1,
             CONFIG.COLORS.GRASS_2,
             CONFIG.COLORS.GRASS_3,
-            CONFIG.COLORS.GRASS_4
+            CONFIG.COLORS.GRASS_4,
+            CONFIG.COLORS.GRASS_DEAD
         ];
         
         const pixelSize = 4; // Size of each "pixel"
         
         for (let y = 0; y < CONFIG.MAP_HEIGHT; y += pixelSize) {
             for (let x = 0; x < CONFIG.MAP_WIDTH; x += pixelSize) {
-                // Dithered pattern based on position
-                const pattern = ((x / pixelSize) + (y / pixelSize)) % 2;
+                // Dithered pattern based on position with variation
+                const pattern = ((Math.floor(x / pixelSize) + Math.floor(y / pixelSize)) % 2);
                 const noise = Math.random();
+                const noise2 = Math.sin(x * 0.01) * Math.cos(y * 0.01);
                 
                 let colorIdx;
                 if (pattern === 0) {
-                    colorIdx = noise < 0.7 ? 0 : 1;
+                    colorIdx = noise < 0.6 ? 0 : (noise < 0.85 ? 1 : 2);
                 } else {
-                    colorIdx = noise < 0.7 ? 1 : (noise < 0.9 ? 2 : 3);
+                    colorIdx = noise < 0.5 ? 1 : (noise < 0.8 ? 2 : (noise < 0.95 ? 3 : 4));
+                }
+                
+                // Add dead grass patches randomly
+                if (noise2 > 0.7 && noise < 0.1) {
+                    colorIdx = 4;
                 }
                 
                 ctx.fillStyle = colors[colorIdx];
                 ctx.fillRect(x, y, pixelSize, pixelSize);
             }
+        }
+        
+        // Add subtle grass texture lines
+        ctx.strokeStyle = CONFIG.COLORS.GRASS_3;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 200; i++) {
+            const x = Math.random() * CONFIG.MAP_WIDTH;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + (Math.random() - 0.5) * 8, y - 4 - Math.random() * 6);
+            ctx.stroke();
         }
     }
     
@@ -95,125 +134,368 @@ export class Renderer {
         const colors = [
             CONFIG.COLORS.MUD,
             CONFIG.COLORS.MUD_DARK,
-            CONFIG.COLORS.MUD_LIGHT
+            CONFIG.COLORS.MUD_LIGHT,
+            CONFIG.COLORS.MUD_WET
         ];
         
         const pixelSize = 4;
         const startX = centerX - width / 2;
         const endX = centerX + width / 2;
         
+        // Gradient edges - mud fades into grass
+        const edgeFade = 50;
+        
         for (let y = 0; y < CONFIG.MAP_HEIGHT; y += pixelSize) {
-            for (let x = startX; x < endX; x += pixelSize) {
+            for (let x = startX - edgeFade; x < endX + edgeFade; x += pixelSize) {
                 const distFromCenter = Math.abs(x - centerX) / (width / 2);
-                const pattern = ((x / pixelSize) + (y / pixelSize)) % 2;
+                const distFromEdge = Math.min(
+                    Math.abs(x - (startX - edgeFade)),
+                    Math.abs(x - (endX + edgeFade))
+                ) / edgeFade;
+                
+                // Skip if in fade zone with probability based on distance
+                if (x < startX || x > endX) {
+                    if (Math.random() > (1 - distFromEdge)) continue;
+                }
+                
+                const pattern = ((Math.floor(x / pixelSize) + Math.floor(y / pixelSize)) % 2);
                 const noise = Math.random();
+                const waveNoise = Math.sin(y * 0.02 + x * 0.01) * 0.5 + 0.5;
                 
                 let colorIdx;
-                // Darker in center
+                // Darker in center, lighter at edges
                 if (distFromCenter < 0.3) {
-                    colorIdx = pattern === 0 ? 1 : (noise < 0.7 ? 1 : 0);
+                    colorIdx = pattern === 0 ? 1 : (noise < 0.6 ? 1 : (noise < 0.9 ? 3 : 0));
+                } else if (distFromCenter < 0.6) {
+                    colorIdx = pattern === 0 ? 0 : (noise < 0.5 ? 0 : (noise < 0.8 ? 1 : 2));
                 } else {
-                    colorIdx = pattern === 0 ? 0 : (noise < 0.5 ? 0 : 2);
+                    colorIdx = pattern === 0 ? 0 : (noise < 0.4 ? 2 : 0);
+                }
+                
+                // Add wet patches
+                if (waveNoise > 0.8 && noise < 0.3) {
+                    colorIdx = 3;
                 }
                 
                 ctx.fillStyle = colors[colorIdx];
                 ctx.fillRect(x, y, pixelSize, pixelSize);
             }
         }
+        
+        // Add mud splatter details
+        ctx.fillStyle = CONFIG.COLORS.MUD_DARK;
+        for (let i = 0; i < 100; i++) {
+            const x = centerX + (Math.random() - 0.5) * width;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            const size = 2 + Math.random() * 6;
+            ctx.fillRect(x, y, size, size);
+        }
     }
     
     addVegetation(ctx) {
         // Add trees on the sides - darker, more ominous WW1 style
+        // Mix of alive and damaged trees
         const treeAreas = [
-            { xMin: 100, xMax: 300, density: 20 },
-            { xMin: CONFIG.MAP_WIDTH - 300, xMax: CONFIG.MAP_WIDTH - 100, density: 20 }
+            { xMin: 80, xMax: 280, density: 25 },
+            { xMin: CONFIG.MAP_WIDTH - 280, xMax: CONFIG.MAP_WIDTH - 80, density: 25 }
         ];
         
         for (const area of treeAreas) {
             for (let i = 0; i < area.density; i++) {
                 const x = area.xMin + Math.random() * (area.xMax - area.xMin);
                 const y = Math.random() * CONFIG.MAP_HEIGHT;
-                this.drawTree(ctx, x, y);
+                const isDamaged = Math.random() < 0.3;
+                this.drawTree(ctx, x, y, isDamaged);
             }
         }
     }
     
-    drawTree(ctx, x, y) {
-        // Dark WW1 style tree - autumn/dead looking
-        const size = 20 + Math.random() * 15;
+    drawTree(ctx, x, y, isDamaged = false) {
+        // Dark WW1 style tree - autumn/damaged looking
+        const size = 18 + Math.random() * 12;
         
         // Dark shadow underneath
         ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
-        ctx.ellipse(x + 5, y + size * 0.4, size * 0.7, size * 0.3, 0, 0, Math.PI * 2);
+        ctx.ellipse(x + 4, y + size * 0.35, size * 0.6, size * 0.25, 0, 0, Math.PI * 2);
         ctx.fill();
         
         // Tree trunk (visible from top-down)
         ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.fillRect(x - 3, y - 2, 6, 8);
+        ctx.fillRect(x - 3, y - 2, 6, 10);
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK_LIGHT;
+        ctx.fillRect(x - 1, y - 1, 2, 8);
         
-        // Tree canopy - dithered brown/dark green (autumn/dead)
-        const pixelSize = 3;
-        for (let py = -size; py < size * 0.3; py += pixelSize) {
-            for (let px = -size; px < size; px += pixelSize) {
-                const dist = Math.sqrt(px * px + py * py);
-                if (dist < size * (0.8 + Math.random() * 0.2)) {
-                    const dither = ((px + py) / pixelSize) % 2;
-                    ctx.fillStyle = dither === 0 ? 
-                        CONFIG.COLORS.TREE_LEAVES : 
-                        CONFIG.COLORS.TREE_LEAVES_LIGHT;
-                    ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
+        if (isDamaged) {
+            // Damaged tree - sparse canopy
+            const pixelSize = 3;
+            for (let py = -size * 0.8; py < size * 0.2; py += pixelSize) {
+                for (let px = -size * 0.8; px < size * 0.8; px += pixelSize) {
+                    const dist = Math.sqrt(px * px + py * py);
+                    if (dist < size * 0.6 && Math.random() < 0.4) {
+                        ctx.fillStyle = Math.random() < 0.5 ? 
+                            CONFIG.COLORS.TREE_DEAD : CONFIG.COLORS.TREE_LEAVES;
+                        ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
+                    }
                 }
             }
+        } else {
+            // Full tree canopy - dithered brown/dark green (autumn)
+            const pixelSize = 3;
+            for (let py = -size; py < size * 0.25; py += pixelSize) {
+                for (let px = -size; px < size; px += pixelSize) {
+                    const dist = Math.sqrt(px * px + py * py);
+                    if (dist < size * (0.75 + Math.random() * 0.2)) {
+                        const dither = ((Math.floor(px / pixelSize) + Math.floor(py / pixelSize)) % 2);
+                        ctx.fillStyle = dither === 0 ? 
+                            CONFIG.COLORS.TREE_LEAVES : 
+                            CONFIG.COLORS.TREE_LEAVES_LIGHT;
+                        ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
+                    }
+                }
+            }
+        }
+    }
+    
+    addDeadTrees(ctx, centerX, width) {
+        // Dead, shattered trees in no man's land
+        this.deadTreePositions = [];
+        
+        for (let i = 0; i < 15; i++) {
+            const x = centerX + (Math.random() - 0.5) * width * 0.8;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            this.deadTreePositions.push({ x, y });
+            this.drawDeadTree(ctx, x, y);
+        }
+    }
+    
+    drawDeadTree(ctx, x, y) {
+        // Shattered tree stump/trunk
+        const height = 15 + Math.random() * 25;
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(x + 3, y + 5, 8, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main trunk - jagged top
+        ctx.fillStyle = CONFIG.COLORS.TREE_DEAD;
+        ctx.beginPath();
+        ctx.moveTo(x - 4, y + 5);
+        ctx.lineTo(x - 3, y - height);
+        ctx.lineTo(x - 1, y - height - 5 - Math.random() * 8);
+        ctx.lineTo(x + 1, y - height + 3);
+        ctx.lineTo(x + 3, y - height - 3 - Math.random() * 5);
+        ctx.lineTo(x + 4, y + 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Lighter side
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK_LIGHT;
+        ctx.fillRect(x - 1, y - height + 5, 2, height - 3);
+        
+        // Broken branch stubs
+        if (Math.random() < 0.6) {
+            ctx.fillStyle = CONFIG.COLORS.TREE_DEAD;
+            ctx.beginPath();
+            ctx.moveTo(x + 3, y - height * 0.5);
+            ctx.lineTo(x + 12 + Math.random() * 8, y - height * 0.5 - 5);
+            ctx.lineTo(x + 10, y - height * 0.5 + 2);
+            ctx.closePath();
+            ctx.fill();
         }
     }
     
     addCraters(ctx, centerX, width) {
         // Dark WW1 shell craters - muddy and grim
-        for (let i = 0; i < 50; i++) {
+        this.craterPositions = [];
+        
+        for (let i = 0; i < 60; i++) {
             const x = centerX + (Math.random() - 0.5) * width * 0.95;
             const y = Math.random() * CONFIG.MAP_HEIGHT;
-            const radius = 6 + Math.random() * 18;
-            const hasWater = Math.random() < 0.5;
+            const radius = 8 + Math.random() * 22;
+            const hasWater = Math.random() < 0.4;
             
-            // Crater rim - dithered
-            const pixelSize = 3;
-            for (let py = -radius - 4; py < radius + 4; py += pixelSize) {
-                for (let px = -radius - 4; px < radius + 4; px += pixelSize) {
+            this.craterPositions.push({ x, y, radius, hasWater });
+            this.drawCrater(ctx, x, y, radius, hasWater);
+        }
+        
+        // Smaller impact marks
+        for (let i = 0; i < 100; i++) {
+            const x = centerX + (Math.random() - 0.5) * width;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            const radius = 2 + Math.random() * 5;
+            
+            ctx.fillStyle = CONFIG.COLORS.MUD_DARK;
+            ctx.beginPath();
+            ctx.arc(x, y, radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    
+    drawCrater(ctx, x, y, radius, hasWater) {
+        const pixelSize = 3;
+        
+        // Crater rim - raised mud around edge
+        for (let py = -radius - 6; py < radius + 6; py += pixelSize) {
+            for (let px = -radius - 6; px < radius + 6; px += pixelSize) {
+                const dist = Math.sqrt(px * px + py * py);
+                if (dist < radius + 6 && dist > radius - 3) {
+                    const dither = ((Math.floor(px / pixelSize) + Math.floor(py / pixelSize)) % 2);
+                    ctx.fillStyle = dither === 0 ? CONFIG.COLORS.MUD_LIGHT : CONFIG.COLORS.MUD;
+                    ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
+                }
+            }
+        }
+        
+        // Crater interior
+        if (hasWater) {
+            // Murky water-filled crater
+            for (let py = -radius + 2; py < radius - 2; py += pixelSize) {
+                for (let px = -radius + 2; px < radius - 2; px += pixelSize) {
                     const dist = Math.sqrt(px * px + py * py);
-                    if (dist < radius + 4 && dist > radius - 2) {
-                        ctx.fillStyle = CONFIG.COLORS.MUD_DARK;
+                    if (dist < radius - 2) {
+                        const dither = ((Math.floor(px / pixelSize) + Math.floor(py / pixelSize)) % 2);
+                        ctx.fillStyle = dither === 0 ? CONFIG.COLORS.WATER : CONFIG.COLORS.WATER_LIGHT;
                         ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
                     }
                 }
             }
+            // Water highlight
+            ctx.fillStyle = CONFIG.COLORS.WATER_LIGHT;
+            ctx.fillRect(x - radius * 0.3, y - radius * 0.3, 4, 3);
+        } else {
+            // Dark muddy crater
+            ctx.fillStyle = CONFIG.COLORS.MUD_DARK;
+            ctx.beginPath();
+            ctx.arc(x, y, radius - 3, 0, Math.PI * 2);
+            ctx.fill();
             
-            // Crater interior
-            if (hasWater) {
-                // Murky water-filled crater
-                for (let py = -radius; py < radius; py += pixelSize) {
-                    for (let px = -radius; px < radius; px += pixelSize) {
-                        const dist = Math.sqrt(px * px + py * py);
-                        if (dist < radius) {
-                            const dither = ((px + py) / pixelSize) % 2;
-                            ctx.fillStyle = dither === 0 ? CONFIG.COLORS.WATER : '#1a2a3a';
-                            ctx.fillRect(x + px, y + py, pixelSize, pixelSize);
-                        }
-                    }
-                }
-            } else {
-                // Dark muddy crater
-                ctx.fillStyle = '#1a1a0a';
+            // Even darker center
+            ctx.fillStyle = '#1a1005';
+            ctx.beginPath();
+            ctx.arc(x, y, radius * 0.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    
+    addDebris(ctx, centerX, width) {
+        this.debrisPositions = [];
+        
+        // Scattered debris - wooden planks, metal scraps, etc.
+        for (let i = 0; i < 80; i++) {
+            const x = centerX + (Math.random() - 0.5) * width * 0.9;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            const type = Math.floor(Math.random() * 4); // 0=plank, 1=metal, 2=sandbag, 3=wheel
+            const angle = Math.random() * Math.PI * 2;
+            
+            this.debrisPositions.push({ x, y, type, angle });
+            this.drawDebris(ctx, x, y, type, angle);
+        }
+    }
+    
+    drawDebris(ctx, x, y, type, angle) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(angle);
+        
+        switch (type) {
+            case 0: // Wooden plank
+                ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+                ctx.fillRect(-12, -2, 24, 4);
+                ctx.fillStyle = CONFIG.COLORS.DEBRIS_DARK;
+                ctx.fillRect(-10, -1, 1, 2);
+                ctx.fillRect(8, -1, 1, 2);
+                break;
+                
+            case 1: // Metal scrap
+                ctx.fillStyle = CONFIG.COLORS.METAL;
                 ctx.beginPath();
-                ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
+                ctx.moveTo(-5, -3);
+                ctx.lineTo(6, -2);
+                ctx.lineTo(4, 4);
+                ctx.lineTo(-6, 2);
+                ctx.closePath();
                 ctx.fill();
+                ctx.fillStyle = CONFIG.COLORS.RUST;
+                ctx.fillRect(-2, -1, 4, 3);
+                break;
+                
+            case 2: // Sandbag
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 8, 5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+                ctx.beginPath();
+                ctx.ellipse(-1, -1, 6, 3, 0, 0, Math.PI * 2);
+                ctx.fill();
+                break;
+                
+            case 3: // Wagon wheel fragment
+                ctx.strokeStyle = CONFIG.COLORS.DEBRIS;
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(0, 0, 10, 0, Math.PI * 0.7);
+                ctx.stroke();
+                ctx.fillStyle = CONFIG.COLORS.DEBRIS_DARK;
+                ctx.fillRect(-2, -2, 4, 4);
+                break;
+        }
+        
+        ctx.restore();
+    }
+    
+    addRuinedStructures(ctx, centerX, width) {
+        // Add a few ruined wall sections
+        for (let i = 0; i < 3; i++) {
+            const x = centerX + (Math.random() - 0.5) * width * 0.6;
+            const y = Math.random() * CONFIG.MAP_HEIGHT;
+            this.drawRuinedWall(ctx, x, y);
+        }
+    }
+    
+    drawRuinedWall(ctx, x, y) {
+        // Ruined brick wall section
+        const height = 20 + Math.random() * 15;
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(x + 8, y + 5, 15, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wall base
+        ctx.fillStyle = CONFIG.COLORS.DEBRIS;
+        
+        // Jagged wall shape
+        ctx.beginPath();
+        ctx.moveTo(x - 15, y + 5);
+        ctx.lineTo(x - 15, y - height + 10);
+        ctx.lineTo(x - 10, y - height + 5);
+        ctx.lineTo(x - 5, y - height + 12);
+        ctx.lineTo(x, y - height);
+        ctx.lineTo(x + 5, y - height + 8);
+        ctx.lineTo(x + 10, y - height + 3);
+        ctx.lineTo(x + 15, y - height + 15);
+        ctx.lineTo(x + 15, y + 5);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Brick lines
+        ctx.strokeStyle = CONFIG.COLORS.DEBRIS_DARK;
+        ctx.lineWidth = 1;
+        for (let row = 0; row < height / 5; row++) {
+            const rowY = y + 5 - row * 5;
+            const offset = row % 2 === 0 ? 0 : 7;
+            for (let col = 0; col < 3; col++) {
+                ctx.strokeRect(x - 14 + col * 10 + offset, rowY - 4, 9, 4);
             }
         }
     }
     
     drawTrainTracks(ctx) {
-        const trackY = CONFIG.MAP_HEIGHT / 2;
-        
         // Player side tracks (left)
         this.drawTrackLine(ctx, 50, 0, 50, CONFIG.MAP_HEIGHT);
         
@@ -222,9 +504,13 @@ export class Renderer {
     }
     
     drawTrackLine(ctx, x1, y1, x2, y2) {
-        // Rails
-        ctx.strokeStyle = '#555';
-        ctx.lineWidth = 4;
+        // Gravel bed
+        ctx.fillStyle = CONFIG.COLORS.DEBRIS;
+        ctx.fillRect(x1 - 18, y1, 36, y2 - y1);
+        
+        // Rails - darker iron color
+        ctx.strokeStyle = CONFIG.COLORS.METAL;
+        ctx.lineWidth = 3;
         
         ctx.beginPath();
         ctx.moveTo(x1 - 8, y1);
@@ -236,22 +522,31 @@ export class Renderer {
         ctx.lineTo(x2 + 8, y2);
         ctx.stroke();
         
+        // Rail highlight
+        ctx.strokeStyle = '#5a5a5a';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x1 - 7, y1);
+        ctx.lineTo(x2 - 7, y2);
+        ctx.stroke();
+        
         // Ties
-        ctx.strokeStyle = '#3d2b1f';
-        ctx.lineWidth = 6;
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
         
         const length = Math.sqrt((x2-x1)**2 + (y2-y1)**2);
-        const ties = Math.floor(length / 30);
+        const ties = Math.floor(length / 25);
         
         for (let i = 0; i < ties; i++) {
             const t = i / ties;
             const x = x1 + (x2 - x1) * t;
             const y = y1 + (y2 - y1) * t;
             
-            ctx.beginPath();
-            ctx.moveTo(x - 15, y);
-            ctx.lineTo(x + 15, y);
-            ctx.stroke();
+            ctx.fillRect(x - 14, y - 2, 28, 5);
+            
+            // Wood grain detail
+            ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK_LIGHT;
+            ctx.fillRect(x - 12, y - 1, 24, 1);
+            ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
         }
     }
     
@@ -275,7 +570,6 @@ export class Renderer {
             const worldX = this.screenToWorldX(centerX);
             const worldY = this.screenToWorldY(centerY);
             
-            // Adjust camera to keep mouse position stable
             const newWorldX = this.screenToWorldX(centerX);
             const newWorldY = this.screenToWorldY(centerY);
             
@@ -301,12 +595,27 @@ export class Renderer {
         return (worldY - this.camera.y) * this.camera.zoom + this.viewHeight / 2;
     }
     
+    // Add blood stain to terrain
+    addBloodStain(x, y, size) {
+        this.bloodStains.push({
+            x, y, size,
+            time: 0,
+            maxTime: 30 // Fade after 30 seconds
+        });
+        
+        // Limit number of blood stains
+        if (this.bloodStains.length > 100) {
+            this.bloodStains.shift();
+        }
+    }
+    
     // Main render function
     render() {
         const ctx = this.ctx;
+        this.time += 1/60;
         
-        // Clear canvas
-        ctx.fillStyle = '#1a1a1a';
+        // Clear canvas with dark color
+        ctx.fillStyle = '#0a0a05';
         ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
         
         // Save state and apply camera transform
@@ -319,6 +628,9 @@ export class Renderer {
         if (this.terrainCanvas) {
             ctx.drawImage(this.terrainCanvas, 0, 0);
         }
+        
+        // Draw blood stains on terrain
+        this.renderBloodStains(ctx);
         
         // Draw game elements
         this.game.trenchSystem.render(ctx);
@@ -349,10 +661,50 @@ export class Renderer {
             this.renderBuildPreview(ctx);
         }
         
+        // Add fog of war/atmosphere at edges
+        this.renderAtmosphere(ctx);
+        
         ctx.restore();
         
         // Draw minimap
         this.renderMinimap();
+    }
+    
+    renderBloodStains(ctx) {
+        for (let i = this.bloodStains.length - 1; i >= 0; i--) {
+            const stain = this.bloodStains[i];
+            stain.time += 1/60;
+            
+            // Remove old stains
+            if (stain.time > stain.maxTime) {
+                this.bloodStains.splice(i, 1);
+                continue;
+            }
+            
+            const fade = stain.time > stain.maxTime - 5 ? 
+                (stain.maxTime - stain.time) / 5 : 1;
+            
+            ctx.globalAlpha = fade * 0.7;
+            ctx.fillStyle = CONFIG.COLORS.BLOOD_POOL;
+            ctx.beginPath();
+            ctx.arc(stain.x, stain.y, stain.size, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 1;
+        }
+    }
+    
+    renderAtmosphere(ctx) {
+        // Light fog effect at map edges
+        const fogGradient = ctx.createRadialGradient(
+            CONFIG.MAP_WIDTH / 2, CONFIG.MAP_HEIGHT / 2, 200,
+            CONFIG.MAP_WIDTH / 2, CONFIG.MAP_HEIGHT / 2, CONFIG.MAP_WIDTH * 0.6
+        );
+        fogGradient.addColorStop(0, 'rgba(60, 55, 45, 0)');
+        fogGradient.addColorStop(0.7, 'rgba(60, 55, 45, 0)');
+        fogGradient.addColorStop(1, 'rgba(40, 35, 25, 0.3)');
+        
+        ctx.fillStyle = fogGradient;
+        ctx.fillRect(0, 0, CONFIG.MAP_WIDTH, CONFIG.MAP_HEIGHT);
     }
     
     renderEffects(ctx) {
@@ -372,163 +724,219 @@ export class Renderer {
                 case 'blood':
                     this.renderBlood(ctx, effect, progress);
                     break;
-                case 'shell_arc':
-                    this.renderShellArc(ctx, effect, progress);
+                case 'tracer':
+                    this.renderTracer(ctx, effect, progress);
+                    break;
+                case 'smoke':
+                    this.renderSmoke(ctx, effect, progress);
                     break;
             }
         }
     }
     
-    renderShellArc(ctx, effect, progress) {
-        // Draw artillery shell flying in an arc
-        const startX = effect.x;
-        const startY = effect.y;
-        const endX = effect.targetX;
-        const endY = effect.targetY;
-        
-        // Calculate arc position
-        const t = progress;
-        const x = startX + (endX - startX) * t;
-        const baseY = startY + (endY - startY) * t;
-        
-        // Parabolic arc height
-        const arcHeight = Math.min(200, Math.abs(endX - startX) * 0.15);
-        const y = baseY - arcHeight * Math.sin(t * Math.PI);
-        
-        // Shell size decreases as it gets higher (perspective)
-        const heightFactor = 1 - Math.sin(t * Math.PI) * 0.5;
-        const size = effect.size * heightFactor;
-        
-        // Draw shell
-        ctx.save();
-        ctx.translate(x, y);
-        
-        // Rotate to face direction of travel
-        const angle = Math.atan2(endY - startY, endX - startX);
-        ctx.rotate(angle);
-        
-        // Shell body
-        ctx.fillStyle = '#3a3a3a';
-        ctx.beginPath();
-        ctx.ellipse(0, 0, size, size / 2, 0, 0, Math.PI * 2);
-        ctx.fill();
-        
-        // Nose
-        ctx.fillStyle = '#555';
-        ctx.beginPath();
-        ctx.moveTo(size, 0);
-        ctx.lineTo(size + 4, -2);
-        ctx.lineTo(size + 4, 2);
-        ctx.closePath();
-        ctx.fill();
-        
-        // Trail smoke
-        ctx.fillStyle = `rgba(80, 70, 60, ${0.5 - progress * 0.3})`;
-        ctx.beginPath();
-        ctx.arc(-size - 2, 0, 3, 0, Math.PI * 2);
-        ctx.fill();
-        
-        ctx.restore();
-        
-        // Draw target indicator (pulsing)
-        if (progress > 0.5) {
-            const pulseAlpha = (1 - progress) * 0.6 + Math.sin(progress * 20) * 0.2;
-            ctx.strokeStyle = `rgba(255, 100, 50, ${pulseAlpha})`;
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.beginPath();
-            ctx.arc(endX, endY, 20 + (1 - progress) * 20, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
-    }
-    
     renderExplosion(ctx, effect, progress) {
-        // Dark WW1 style explosion
-        const size = effect.size * (1 + progress * 1.5);
+        // WWI style explosion - more debris and smoke
+        const size = effect.size * (1 + progress * 2);
         const alpha = 1 - progress;
         
-        // Darker, grittier explosion colors
-        const colors = ['#ff8822', '#dd4400', '#aa2200', '#441100'];
-        const colorIdx = Math.floor(progress * 4) % colors.length;
+        // Screen shake effect (handled via CSS class on canvas)
+        if (progress < 0.1 && effect.size > 30) {
+            this.canvas.classList.add('screen-shake');
+            setTimeout(() => this.canvas.classList.remove('screen-shake'), 400);
+        }
         
-        ctx.globalAlpha = alpha;
+        ctx.save();
         
-        // Smoke first (dark)
-        ctx.fillStyle = `rgba(40, 30, 20, ${alpha * 0.7})`;
+        // Smoke cloud (rises up)
+        ctx.globalAlpha = alpha * 0.6;
+        ctx.fillStyle = CONFIG.COLORS.EXPLOSION_SMOKE;
         ctx.beginPath();
-        ctx.arc(effect.x, effect.y - progress * 10, size * 1.2, 0, Math.PI * 2);
+        ctx.arc(effect.x, effect.y - progress * 30, size * 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Secondary smoke
+        ctx.fillStyle = '#2a2515';
+        ctx.beginPath();
+        ctx.arc(effect.x + size * 0.3, effect.y - progress * 20 - 10, size * 1.2, 0, Math.PI * 2);
         ctx.fill();
         
         // Fire core
-        ctx.fillStyle = colors[colorIdx];
-        const blockSize = size * 0.5;
-        ctx.fillRect(effect.x - blockSize/2, effect.y - blockSize/2, blockSize, blockSize);
+        ctx.globalAlpha = alpha;
+        const fireColors = [
+            CONFIG.COLORS.MUZZLE_FLASH,
+            CONFIG.COLORS.EXPLOSION,
+            CONFIG.COLORS.EXPLOSION_DARK,
+            CONFIG.COLORS.DEBRIS_DARK
+        ];
+        const colorIdx = Math.min(3, Math.floor(progress * 4));
+        ctx.fillStyle = fireColors[colorIdx];
         
-        // Debris chunks
-        const smallSize = size * 0.25;
-        for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2 + progress;
-            const dist = size * (0.4 + progress * 1);
+        // Pixelated fire
+        const fireSize = size * (1 - progress * 0.5);
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2 + progress * 2;
+            const dist = fireSize * (0.3 + Math.random() * 0.5);
             const px = effect.x + Math.cos(angle) * dist;
-            const py = effect.y + Math.sin(angle) * dist - progress * 15;
-            ctx.fillStyle = i % 2 === 0 ? '#3a2a1a' : colors[colorIdx];
-            ctx.fillRect(px - smallSize/2, py - smallSize/2, smallSize, smallSize);
+            const py = effect.y + Math.sin(angle) * dist - progress * 10;
+            const blockSize = size * 0.2 * (1 - progress * 0.5);
+            ctx.fillRect(px - blockSize/2, py - blockSize/2, blockSize, blockSize);
         }
         
-        ctx.globalAlpha = 1;
+        // Bright center flash (early)
+        if (progress < 0.3) {
+            ctx.globalAlpha = (1 - progress / 0.3);
+            ctx.fillStyle = CONFIG.COLORS.MUZZLE_CORE;
+            ctx.fillRect(effect.x - 4, effect.y - 4, 8, 8);
+        }
+        
+        // Debris chunks flying out
+        ctx.globalAlpha = alpha;
+        const debrisCount = Math.floor(effect.size / 5);
+        for (let i = 0; i < debrisCount; i++) {
+            const angle = (i / debrisCount) * Math.PI * 2 + effect.x * 0.1;
+            const dist = size * (0.5 + progress * 1.5);
+            const px = effect.x + Math.cos(angle) * dist;
+            const py = effect.y + Math.sin(angle) * dist - progress * 25 + progress * progress * 20;
+            const debrisSize = 2 + Math.random() * 4;
+            ctx.fillStyle = i % 2 === 0 ? CONFIG.COLORS.DEBRIS : CONFIG.COLORS.MUD;
+            ctx.fillRect(px, py, debrisSize, debrisSize);
+        }
+        
+        ctx.restore();
     }
     
     renderMuzzleFlash(ctx, effect, progress) {
-        // Quick muzzle flash
-        const size = effect.size * (1 - progress * 0.8);
+        // Quick bright muzzle flash - Cannon Fodder style
+        const size = effect.size * (1 - progress * 0.7);
         const alpha = 1 - progress;
         
+        ctx.save();
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = '#ffaa44';
+        
+        // White hot core
+        if (progress < 0.5) {
+            ctx.fillStyle = CONFIG.COLORS.MUZZLE_CORE;
+            ctx.fillRect(effect.x - size * 0.3, effect.y - size * 0.3, size * 0.6, size * 0.6);
+        }
+        
+        // Yellow/orange flash
+        ctx.fillStyle = CONFIG.COLORS.MUZZLE_FLASH;
         ctx.fillRect(effect.x - size/2, effect.y - size/2, size, size);
         
-        // Bright center
-        ctx.fillStyle = '#ffdd88';
-        ctx.fillRect(effect.x - size/4, effect.y - size/4, size/2, size/2);
-        ctx.globalAlpha = 1;
+        // Flash spikes
+        ctx.fillStyle = CONFIG.COLORS.EXPLOSION;
+        const spikeLength = size * 0.8;
+        for (let i = 0; i < 4; i++) {
+            const angle = (i / 4) * Math.PI * 2;
+            ctx.fillRect(
+                effect.x + Math.cos(angle) * spikeLength - 1,
+                effect.y + Math.sin(angle) * spikeLength - 1,
+                3, 3
+            );
+        }
+        
+        ctx.restore();
+    }
+    
+    renderTracer(ctx, effect, progress) {
+        // Bullet tracer line
+        const alpha = 1 - progress;
+        
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.strokeStyle = CONFIG.COLORS.TRACER;
+        ctx.lineWidth = 2;
+        
+        const length = 15 * (1 - progress);
+        const angle = effect.angle || 0;
+        
+        ctx.beginPath();
+        ctx.moveTo(effect.x, effect.y);
+        ctx.lineTo(
+            effect.x - Math.cos(angle) * length,
+            effect.y - Math.sin(angle) * length
+        );
+        ctx.stroke();
+        
+        // Bright tip
+        ctx.fillStyle = CONFIG.COLORS.MUZZLE_CORE;
+        ctx.fillRect(effect.x - 1, effect.y - 1, 2, 2);
+        
+        ctx.restore();
+    }
+    
+    renderSmoke(ctx, effect, progress) {
+        const alpha = (1 - progress) * 0.5;
+        const size = effect.size * (1 + progress * 2);
+        
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = CONFIG.COLORS.EXPLOSION_SMOKE;
+        
+        // Multiple smoke puffs
+        for (let i = 0; i < 3; i++) {
+            const offsetX = Math.sin(progress * 3 + i) * 10;
+            const offsetY = -progress * 40 - i * 10;
+            ctx.beginPath();
+            ctx.arc(effect.x + offsetX, effect.y + offsetY, size * (0.6 + i * 0.2), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        ctx.restore();
     }
     
     renderDirtPuff(ctx, effect, progress) {
-        // Dark dirt particles
-        const alpha = (1 - progress) * 0.7;
+        // Dark dirt particles flying up
+        const alpha = (1 - progress) * 0.8;
         
+        ctx.save();
         ctx.globalAlpha = alpha;
         
         // Multiple dirt chunks
-        for (let i = 0; i < 5; i++) {
-            const offsetX = (i - 2) * 5;
-            const offsetY = -progress * 20 - i * 4;
-            const size = 4 - progress * 3;
-            ctx.fillStyle = i % 2 === 0 ? '#4a3a2a' : '#3a2a1a';
+        for (let i = 0; i < 6; i++) {
+            const offsetX = (i - 2.5) * 6 + Math.sin(i + progress * 10) * 3;
+            const offsetY = -progress * 25 - i * 5 + progress * progress * 15;
+            const size = (5 - progress * 4) * (0.8 + Math.random() * 0.4);
+            ctx.fillStyle = i % 2 === 0 ? CONFIG.COLORS.MUD : CONFIG.COLORS.MUD_DARK;
             ctx.fillRect(effect.x + offsetX - size/2, effect.y + offsetY - size/2, size, size);
         }
         
-        ctx.globalAlpha = 1;
+        ctx.restore();
     }
     
     renderBlood(ctx, effect, progress) {
-        // Dark blood splatter
-        const alpha = 1 - progress * 0.4;
+        // Dark blood splatter - Cannon Fodder style
+        const alpha = 1 - progress * 0.3;
+        const size = effect.size;
         
-        // Dark blood pool
-        ctx.fillStyle = `rgba(100, 0, 0, ${alpha})`;
-        ctx.fillRect(effect.x - effect.size/2, effect.y - effect.size/2, effect.size, effect.size);
+        ctx.save();
         
-        // Splatter
-        ctx.fillStyle = `rgba(80, 0, 0, ${alpha})`;
-        for (let i = 0; i < 4; i++) {
-            const angle = (i / 4) * Math.PI * 2 + effect.x * 0.1;
-            const dist = effect.size * (0.3 + progress * 0.4);
+        // Main blood pool (stays on ground)
+        if (progress > 0.5) {
+            // Add persistent stain
+            if (progress > 0.5 && progress < 0.55) {
+                this.addBloodStain(effect.x, effect.y, size * 0.8);
+            }
+        }
+        
+        ctx.globalAlpha = alpha;
+        
+        // Splatter droplets
+        ctx.fillStyle = CONFIG.COLORS.BLOOD;
+        for (let i = 0; i < 6; i++) {
+            const angle = (i / 6) * Math.PI * 2 + effect.x * 0.1;
+            const dist = size * (0.4 + progress * 0.6);
             const px = effect.x + Math.cos(angle) * dist;
             const py = effect.y + Math.sin(angle) * dist;
-            ctx.fillRect(px - 1, py - 1, 3, 3);
+            const dropSize = 2 + Math.random() * 3;
+            ctx.fillRect(px - dropSize/2, py - dropSize/2, dropSize, dropSize);
         }
+        
+        // Central pool
+        ctx.fillStyle = CONFIG.COLORS.BLOOD_BRIGHT;
+        ctx.fillRect(effect.x - size/2, effect.y - size/2, size, size);
+        
+        ctx.restore();
     }
     
     renderSelectionBox(ctx) {
@@ -538,13 +946,14 @@ export class Renderer {
         const x2 = Math.max(input.selectionStart.x, input.selectionEnd.x);
         const y2 = Math.max(input.selectionStart.y, input.selectionEnd.y);
         
+        // Cannon Fodder style selection - yellow dashed
         ctx.strokeStyle = CONFIG.COLORS.SELECTION;
         ctx.lineWidth = 2 / this.camera.zoom;
-        ctx.setLineDash([5 / this.camera.zoom, 5 / this.camera.zoom]);
+        ctx.setLineDash([6 / this.camera.zoom, 4 / this.camera.zoom]);
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
         ctx.setLineDash([]);
         
-        ctx.fillStyle = 'rgba(255, 255, 0, 0.1)';
+        ctx.fillStyle = 'rgba(255, 220, 50, 0.1)';
         ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
     }
     
@@ -553,10 +962,10 @@ export class Renderer {
         if (points.length < 2) return;
         
         ctx.strokeStyle = 'rgba(138, 122, 90, 0.6)';
-        ctx.lineWidth = 20;
+        ctx.lineWidth = 22;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.setLineDash([10, 10]);
+        ctx.setLineDash([12, 8]);
         
         ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
@@ -572,10 +981,10 @@ export class Renderer {
         if (points.length < 1) return;
         
         ctx.strokeStyle = 'rgba(100, 100, 100, 0.6)';
-        ctx.lineWidth = 8;
+        ctx.lineWidth = 10;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
-        ctx.setLineDash([5, 5]);
+        ctx.setLineDash([6, 6]);
         
         ctx.beginPath();
         ctx.moveTo(points[0].x, points[0].y);
@@ -593,12 +1002,15 @@ export class Renderer {
         const preview = this.game.input.buildPreview;
         const canPlace = this.game.buildingManager.canPlace(preview.type, preview.x, preview.y);
         
+        ctx.save();
         ctx.globalAlpha = 0.6;
         
         if (canPlace) {
-            ctx.strokeStyle = '#00ff00';
+            ctx.strokeStyle = '#44ff44';
+            ctx.fillStyle = 'rgba(50, 255, 50, 0.2)';
         } else {
-            ctx.strokeStyle = '#ff0000';
+            ctx.strokeStyle = '#ff4444';
+            ctx.fillStyle = 'rgba(255, 50, 50, 0.2)';
         }
         
         ctx.lineWidth = 3;
@@ -607,23 +1019,35 @@ export class Renderer {
             case 'machinegun':
                 ctx.beginPath();
                 ctx.arc(preview.x, preview.y, 25, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.fillStyle = canPlace ? 'rgba(0, 255, 0, 0.3)' : 'rgba(255, 0, 0, 0.3)';
                 ctx.fill();
+                ctx.stroke();
+                // Range indicator
+                if (canPlace) {
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.MG_RANGE, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
                 break;
             case 'artillery':
                 ctx.beginPath();
                 ctx.arc(preview.x, preview.y, 35, 0, Math.PI * 2);
-                ctx.stroke();
-                ctx.fillStyle = canPlace ? 'rgba(0, 255, 0, 0.3)' : 'rgba(255, 0, 0, 0.3)';
                 ctx.fill();
+                ctx.stroke();
+                // Range indicator
+                if (canPlace) {
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.ARTILLERY_RANGE, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
                 break;
             case 'barbed':
                 ctx.strokeRect(preview.x - 30, preview.y - 10, 60, 20);
                 break;
         }
         
-        ctx.globalAlpha = 1;
+        ctx.restore();
     }
     
     renderMinimap() {
@@ -639,18 +1063,20 @@ export class Renderer {
         const sy = mh / CONFIG.MAP_HEIGHT;
         
         // Clear with dark olive
-        mctx.fillStyle = '#3a4a2a';
+        mctx.fillStyle = '#2a3a1a';
         mctx.fillRect(0, 0, mw, mh);
         
-        // No man's land (brown strip)
-        mctx.fillStyle = '#3a2a1a';
-        mctx.fillRect(mw * 0.4, 0, mw * 0.2, mh);
+        // No man's land (darker brown strip)
+        mctx.fillStyle = '#2a1a0a';
+        mctx.fillRect(mw * 0.38, 0, mw * 0.24, mh);
         
         // Trenches (khaki lines)
-        mctx.strokeStyle = '#8a7a5a';
+        mctx.strokeStyle = CONFIG.COLORS.SANDBAG;
         mctx.lineWidth = 2;
+        mctx.lineCap = 'round';
         for (const trench of this.game.trenchSystem.trenches) {
             if (trench.points.length < 2) continue;
+            mctx.globalAlpha = trench.isBlueprint ? 0.4 : 1;
             mctx.beginPath();
             mctx.moveTo(trench.points[0].x * sx, trench.points[0].y * sy);
             for (let i = 1; i < trench.points.length; i++) {
@@ -658,20 +1084,21 @@ export class Renderer {
             }
             mctx.stroke();
         }
+        mctx.globalAlpha = 1;
         
         // Units as dots
         for (const unit of this.game.unitManager.units) {
             if (unit.state === 'dead') continue;
-            mctx.fillStyle = unit.team === CONFIG.TEAM_PLAYER ? '#6a8a4a' : '#8a5a3a';
-            mctx.fillRect(unit.x * sx - 1, unit.y * sy - 1, 2, 2);
+            mctx.fillStyle = unit.team === CONFIG.TEAM_PLAYER ? '#6a9a4a' : '#9a5a3a';
+            mctx.fillRect(unit.x * sx - 1, unit.y * sy - 1, 3, 3);
         }
         
         // Buildings
         for (const building of this.game.buildingManager.buildings) {
             if (building.destroyed) continue;
-            mctx.fillStyle = building.team === CONFIG.TEAM_PLAYER ? '#5a7a3a' : '#7a4a2a';
+            mctx.fillStyle = building.team === CONFIG.TEAM_PLAYER ? '#5a8a3a' : '#8a4a2a';
             if (building.type === 'hq') {
-                mctx.fillRect(building.x * sx - 3, building.y * sy - 3, 6, 6);
+                mctx.fillRect(building.x * sx - 4, building.y * sy - 4, 8, 8);
             } else {
                 mctx.fillRect(building.x * sx - 2, building.y * sy - 2, 4, 4);
             }
@@ -683,9 +1110,8 @@ export class Renderer {
         const viewW = (this.viewWidth / this.camera.zoom) * sx;
         const viewH = (this.viewHeight / this.camera.zoom) * sy;
         
-        mctx.strokeStyle = '#c0b080';
+        mctx.strokeStyle = CONFIG.COLORS.SELECTION;
         mctx.lineWidth = 1;
         mctx.strokeRect(viewLeft, viewTop, viewW, viewH);
     }
 }
-

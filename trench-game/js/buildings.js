@@ -384,13 +384,6 @@ export class BuildingManager {
     }
     
     updateWeapon(building, dt) {
-        // Artillery uses special targeting for long-range bombardment
-        if (building.type === 'artillery') {
-            this.updateArtillery(building, dt);
-            return;
-        }
-        
-        // Machine guns target nearby enemies
         const enemies = this.game.unitManager.getEnemiesInRange(
             building.x, building.y, building.range, building.team
         );
@@ -423,134 +416,6 @@ export class BuildingManager {
             this.fire(building, target);
             building.attackCooldown = 1 / building.fireRate;
         }
-    }
-    
-    updateArtillery(building, dt) {
-        // Artillery prioritizes: 1. Enemy artillery 2. Enemy MGs 3. Enemy HQ 4. Unit clusters 5. Trenches
-        const enemyTeam = building.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
-        
-        let bestTarget = null;
-        let bestPriority = -1;
-        
-        // Check enemy buildings first
-        for (const enemyBuilding of this.buildings) {
-            if (enemyBuilding.team !== enemyTeam || enemyBuilding.destroyed) continue;
-            
-            const dist = Math.sqrt((enemyBuilding.x - building.x) ** 2 + (enemyBuilding.y - building.y) ** 2);
-            if (dist > building.range) continue;
-            
-            let priority = 0;
-            if (enemyBuilding.type === 'artillery') priority = 100;
-            else if (enemyBuilding.type === 'machinegun') priority = 80;
-            else if (enemyBuilding.type === 'hq') priority = 60;
-            
-            // Add some randomness to avoid always targeting the same thing
-            priority += Math.random() * 20;
-            
-            if (priority > bestPriority) {
-                bestPriority = priority;
-                bestTarget = { x: enemyBuilding.x, y: enemyBuilding.y, type: 'building' };
-            }
-        }
-        
-        // Check for enemy unit clusters
-        const enemies = this.game.unitManager.getEnemiesInRange(
-            building.x, building.y, building.range, building.team
-        );
-        
-        if (enemies.length > 0) {
-            // Find clusters of enemies
-            const clusterRadius = 60;
-            for (const enemy of enemies) {
-                const nearbyCount = enemies.filter(e => {
-                    const d = Math.sqrt((e.x - enemy.x) ** 2 + (e.y - enemy.y) ** 2);
-                    return d < clusterRadius;
-                }).length;
-                
-                // Clusters are valuable targets
-                const priority = 30 + nearbyCount * 15 + Math.random() * 10;
-                
-                if (priority > bestPriority) {
-                    bestPriority = priority;
-                    bestTarget = { x: enemy.x, y: enemy.y, type: 'unit' };
-                }
-            }
-        }
-        
-        // Check enemy trenches
-        for (const trench of this.game.trenchSystem.trenches) {
-            if (trench.team !== enemyTeam || trench.isBlueprint || trench.destroyed) continue;
-            
-            // Target the center of the trench
-            const centerIdx = Math.floor(trench.points.length / 2);
-            const centerPoint = trench.points[centerIdx];
-            
-            const dist = Math.sqrt((centerPoint.x - building.x) ** 2 + (centerPoint.y - building.y) ** 2);
-            if (dist > building.range) continue;
-            
-            // Check if there are enemies in the trench
-            const unitsInTrench = enemies.filter(e => {
-                const trenchDist = this.game.trenchSystem.pointToSegmentDistance(
-                    e.x, e.y, trench.segments[0].start, trench.segments[trench.segments.length - 1].end
-                );
-                return trenchDist < 30;
-            }).length;
-            
-            const priority = 20 + unitsInTrench * 20 + Math.random() * 10;
-            
-            if (priority > bestPriority) {
-                bestPriority = priority;
-                bestTarget = { x: centerPoint.x, y: centerPoint.y, type: 'trench' };
-            }
-        }
-        
-        if (!bestTarget) {
-            building.target = null;
-            return;
-        }
-        
-        building.target = bestTarget;
-        
-        // Aim at target
-        const targetAngle = Math.atan2(bestTarget.y - building.y, bestTarget.x - building.x);
-        const angleDiff = targetAngle - building.angle;
-        building.angle += angleDiff * 3 * dt;
-        
-        // Fire when ready
-        if (building.attackCooldown <= 0) {
-            this.fireArtillery(building, bestTarget);
-            building.attackCooldown = 1 / building.fireRate;
-        }
-    }
-    
-    fireArtillery(building, target) {
-        // Add some scatter to the shot based on distance
-        const dist = Math.sqrt((target.x - building.x) ** 2 + (target.y - building.y) ** 2);
-        const scatter = Math.min(60, dist * 0.03); // More scatter at longer range
-        
-        const targetX = target.x + (Math.random() - 0.5) * scatter;
-        const targetY = target.y + (Math.random() - 0.5) * scatter;
-        
-        // Muzzle flash
-        this.game.addEffect('muzzle',
-            building.x + Math.cos(building.angle) * 35,
-            building.y + Math.sin(building.angle) * 35,
-            { size: 30, duration: 0.2 }
-        );
-        
-        // Flight time based on distance (min 0.5s, max 2s)
-        const flightTime = Math.min(2000, Math.max(500, dist * 1.2));
-        
-        // Shell arc effect
-        this.game.addEffect('shell_arc', building.x, building.y, {
-            targetX, targetY,
-            duration: flightTime / 1000,
-            size: 8
-        });
-        
-        setTimeout(() => {
-            this.artilleryExplosion(targetX, targetY, building);
-        }, flightTime);
     }
     
     fire(building, target) {
@@ -600,7 +465,6 @@ export class BuildingManager {
         const splashRadius = source.splashRadius || 50;
         const allUnits = this.game.unitManager.units;
         
-        // Damage units
         for (const unit of allUnits) {
             const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
             if (dist < splashRadius) {
@@ -611,92 +475,27 @@ export class BuildingManager {
             }
         }
         
-        // Damage buildings
         for (const building of this.buildings) {
             if (building === source || building.destroyed) continue;
             
             const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
             if (dist < splashRadius) {
                 const falloff = 1 - (dist / splashRadius);
-                this.damageBuilding(building, source.damage * falloff * 0.5);
-            }
-        }
-        
-        // Damage trenches
-        this.game.trenchSystem.damageTrenchesAtPoint(x, y, splashRadius, source.damage * 0.3);
-        
-        // Damage barbed wire
-        for (const wire of this.barbedWireLines) {
-            if (wire.destroyed) continue;
-            
-            for (const seg of wire.segments) {
-                if (!seg.built) continue;
+                building.health -= source.damage * falloff * 0.5;
                 
-                const midX = (seg.start.x + seg.end.x) / 2;
-                const midY = (seg.start.y + seg.end.y) / 2;
-                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
-                
-                if (dist < splashRadius) {
-                    const falloff = 1 - (dist / splashRadius);
-                    wire.health -= source.damage * falloff * 0.4;
-                    
-                    if (wire.health <= 0) {
-                        wire.destroyed = true;
-                        this.game.addEffect('dirt', midX, midY, { size: 15, duration: 0.5 });
+                if (building.health <= 0) {
+                    building.destroyed = true;
+                    if (building.assignedUnit) {
+                        building.assignedUnit.mannedBuilding = null;
+                        building.assignedUnit = null;
                     }
+                    this.game.addEffect('explosion', building.x, building.y, {
+                        size: 50,
+                        duration: 0.8
+                    });
                 }
             }
         }
-    }
-    
-    damageBuilding(building, amount) {
-        building.health -= amount;
-        
-        // Mark as damaged for repair system
-        if (!building.damaged && building.health < building.maxHealth) {
-            building.damaged = true;
-        }
-        
-        if (building.health <= 0) {
-            building.destroyed = true;
-            if (building.assignedUnit) {
-                building.assignedUnit.mannedBuilding = null;
-                building.assignedUnit = null;
-            }
-            this.game.addEffect('explosion', building.x, building.y, {
-                size: building.type === 'hq' ? 80 : 50,
-                duration: 0.8
-            });
-        }
-    }
-    
-    // Find damaged buildings that need repair
-    findDamagedStructure(x, y, team) {
-        let nearest = null;
-        let minDist = Infinity;
-        
-        for (const building of this.buildings) {
-            if (building.team !== team || building.destroyed || building.isBlueprint) continue;
-            if (building.health >= building.maxHealth) continue;
-            
-            const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
-            if (dist < minDist) {
-                minDist = dist;
-                nearest = { type: 'building', target: building, x: building.x, y: building.y };
-            }
-        }
-        
-        return nearest;
-    }
-    
-    repairBuilding(building, amount) {
-        building.health = Math.min(building.maxHealth, building.health + amount);
-        
-        if (building.health >= building.maxHealth) {
-            building.damaged = false;
-            return true; // Fully repaired
-        }
-        return false;
     }
     
     updateBarbedWireEffect(wire) {
@@ -764,8 +563,9 @@ export class BuildingManager {
             this.renderBarbedWireLine(ctx, wire);
         }
         
-        // Render buildings
-        for (const building of this.buildings) {
+        // Render buildings - sort by y for proper overlap
+        const sortedBuildings = [...this.buildings].sort((a, b) => a.y - b.y);
+        for (const building of sortedBuildings) {
             if (building.destroyed) {
                 this.renderDestroyed(ctx, building);
                 continue;
@@ -794,10 +594,10 @@ export class BuildingManager {
             };
             
             if (seg.progress === 0 && !seg.built) {
-                // Unbuilt - show blueprint
-                ctx.strokeStyle = 'rgba(100, 100, 100, 0.4)';
-                ctx.lineWidth = 8;
-                ctx.setLineDash([5, 5]);
+                // Unbuilt - show blueprint with dashed line
+                ctx.strokeStyle = 'rgba(90, 70, 50, 0.5)';
+                ctx.lineWidth = 10;
+                ctx.setLineDash([8, 8]);
                 ctx.beginPath();
                 ctx.moveTo(seg.start.x, seg.start.y);
                 ctx.lineTo(seg.end.x, seg.end.y);
@@ -821,43 +621,78 @@ export class BuildingManager {
         const nx = -dy / length;
         const ny = dx / length;
         
-        // Posts
-        ctx.fillStyle = '#3a2a1a';
-        const postCount = Math.max(2, Math.floor(length / 40));
+        // Shadow underneath
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.moveTo(start.x + nx * 8 + 3, start.y + ny * 8 + 3);
+        ctx.lineTo(end.x + nx * 8 + 3, end.y + ny * 8 + 3);
+        ctx.lineTo(end.x - nx * 8 + 3, end.y - ny * 8 + 3);
+        ctx.lineTo(start.x - nx * 8 + 3, start.y - ny * 8 + 3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Wooden posts with detail
+        const postCount = Math.max(2, Math.floor(length / 35));
         for (let i = 0; i <= postCount; i++) {
             const t = i / postCount;
             const px = start.x + dx * t;
             const py = start.y + dy * t;
-            ctx.fillRect(px - 2, py - 8, 4, 16);
+            
+            // Post shadow
+            ctx.fillStyle = CONFIG.COLORS.SHADOW;
+            ctx.fillRect(px - 1, py + 10, 4, 3);
+            
+            // Main post
+            ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+            ctx.fillRect(px - 2, py - 12, 5, 22);
+            
+            // Post highlight
+            ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK_LIGHT;
+            ctx.fillRect(px - 1, py - 10, 2, 18);
+            
+            // Cross piece
+            ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+            ctx.fillRect(px - 6, py - 8, 13, 3);
+            ctx.fillRect(px - 6, py + 2, 13, 3);
         }
         
-        // Wires
-        ctx.strokeStyle = '#4a4a4a';
-        ctx.lineWidth = 1;
-        
+        // Multiple wire strands
         for (let row = -2; row <= 2; row++) {
+            const offset = row * 4;
+            
+            // Main wire - slightly wavy
+            ctx.strokeStyle = CONFIG.COLORS.BARBED_WIRE;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            ctx.moveTo(start.x + nx * row * 3, start.y + ny * row * 3);
-            ctx.lineTo(end.x + nx * row * 3, end.y + ny * row * 3);
+            ctx.moveTo(start.x + nx * offset, start.y + ny * offset);
+            
+            // Add slight waviness
+            const segments = Math.floor(length / 10);
+            for (let s = 1; s <= segments; s++) {
+                const t = s / segments;
+                const wave = Math.sin(s * 2 + row) * 1.5;
+                ctx.lineTo(
+                    start.x + dx * t + nx * (offset + wave),
+                    start.y + dy * t + ny * (offset + wave)
+                );
+            }
             ctx.stroke();
         }
         
-        // Barbs
-        ctx.strokeStyle = '#5a5a5a';
-        const barbCount = Math.floor(length / 8);
+        // Barbs - rusty metal crosses
+        const barbCount = Math.floor(length / 6);
         for (let i = 0; i < barbCount; i++) {
             const t = (i + 0.5) / barbCount;
-            const bx = start.x + dx * t;
-            const by = start.y + dy * t;
+            const row = (i % 5) - 2;
+            const bx = start.x + dx * t + nx * row * 4;
+            const by = start.y + dy * t + ny * row * 4;
             
-            ctx.beginPath();
-            ctx.moveTo(bx - 2, by - 4);
-            ctx.lineTo(bx + 2, by + 4);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(bx + 2, by - 4);
-            ctx.lineTo(bx - 2, by + 4);
-            ctx.stroke();
+            ctx.fillStyle = CONFIG.COLORS.BARBED_WIRE_RUST;
+            // X barbs
+            ctx.fillRect(bx - 2, by - 2, 1, 4);
+            ctx.fillRect(bx + 1, by - 2, 1, 4);
+            ctx.fillRect(bx - 2, by - 1, 4, 1);
+            ctx.fillRect(bx - 2, by + 1, 4, 1);
         }
     }
     
@@ -867,46 +702,158 @@ export class BuildingManager {
         ctx.save();
         ctx.translate(building.x, building.y);
         
-        ctx.fillStyle = isEnemy ? '#5c3d2e' : '#3d5c3d';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 3;
-        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
-        ctx.rect(-40, -30, 80, 60);
+        ctx.ellipse(5, 35, 50, 15, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.stroke();
         
-        ctx.fillStyle = isEnemy ? '#4a2d1e' : '#2d4a2d';
+        // Main building - WWI style dugout/bunker
+        const baseColor = isEnemy ? '#4a3525' : '#354a35';
+        const roofColor = isEnemy ? '#3a2515' : '#253a25';
+        const trimColor = isEnemy ? '#5a4535' : '#455a45';
+        
+        // Base structure
+        ctx.fillStyle = baseColor;
+        ctx.fillRect(-45, -25, 90, 55);
+        
+        // Darker foundation
+        ctx.fillStyle = CONFIG.COLORS.MUD_DARK;
+        ctx.fillRect(-48, 25, 96, 10);
+        
+        // Wall detail - horizontal planks/sandbags
+        ctx.fillStyle = trimColor;
+        for (let y = -20; y < 25; y += 8) {
+            ctx.fillRect(-43, y, 86, 3);
+        }
+        
+        // Darker left side for depth
+        ctx.fillStyle = roofColor;
+        ctx.fillRect(-45, -25, 15, 55);
+        
+        // Roof
+        ctx.fillStyle = roofColor;
         ctx.beginPath();
-        ctx.moveTo(-45, -30);
+        ctx.moveTo(-50, -25);
+        ctx.lineTo(0, -55);
+        ctx.lineTo(50, -25);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Roof highlight
+        ctx.fillStyle = trimColor;
+        ctx.beginPath();
+        ctx.moveTo(-40, -27);
         ctx.lineTo(0, -50);
-        ctx.lineTo(45, -30);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-        
-        ctx.fillStyle = '#2a1a0a';
-        ctx.fillRect(-10, 0, 20, 30);
-        
-        ctx.fillStyle = isEnemy ? '#8b0000' : '#006400';
-        ctx.beginPath();
-        ctx.moveTo(0, -50);
-        ctx.lineTo(0, -80);
-        ctx.lineTo(25, -70);
-        ctx.lineTo(0, -60);
+        ctx.lineTo(40, -27);
+        ctx.lineTo(35, -27);
+        ctx.lineTo(0, -45);
+        ctx.lineTo(-35, -27);
         ctx.closePath();
         ctx.fill();
         
-        ctx.strokeStyle = '#333';
+        // Door
+        ctx.fillStyle = '#1a1a0a';
+        ctx.fillRect(-12, 0, 24, 30);
+        ctx.fillStyle = '#2a2a1a';
+        ctx.fillRect(-10, 2, 20, 26);
+        // Door frame
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.fillRect(-14, -2, 4, 34);
+        ctx.fillRect(10, -2, 4, 34);
+        ctx.fillRect(-14, -2, 28, 4);
+        
+        // Windows
+        ctx.fillStyle = '#1a2a3a';
+        ctx.fillRect(-38, -10, 15, 12);
+        ctx.fillRect(23, -10, 15, 12);
+        // Window frames
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
         ctx.lineWidth = 2;
+        ctx.strokeRect(-38, -10, 15, 12);
+        ctx.strokeRect(23, -10, 15, 12);
+        // Window cross
         ctx.beginPath();
-        ctx.moveTo(0, -50);
-        ctx.lineTo(0, -80);
+        ctx.moveTo(-30.5, -10);
+        ctx.lineTo(-30.5, 2);
+        ctx.moveTo(-38, -4);
+        ctx.lineTo(-23, -4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(30.5, -10);
+        ctx.lineTo(30.5, 2);
+        ctx.moveTo(23, -4);
+        ctx.lineTo(38, -4);
         ctx.stroke();
         
-        this.renderHealthBar(ctx, building, 60);
+        // Flag pole
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.fillRect(-2, -55, 4, 45);
+        
+        // Flag
+        const flagColor = isEnemy ? '#8b2020' : '#206020';
+        const flagAccent = isEnemy ? '#aa3030' : '#308030';
+        ctx.fillStyle = flagColor;
+        ctx.beginPath();
+        ctx.moveTo(2, -90);
+        ctx.lineTo(35, -80);
+        ctx.lineTo(35, -60);
+        ctx.lineTo(2, -55);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Flag detail
+        ctx.fillStyle = flagAccent;
+        ctx.fillRect(8, -78, 20, 5);
+        ctx.fillRect(15, -85, 5, 25);
+        
+        // Flag wave effect
+        ctx.strokeStyle = '#1a1a0a';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(2, -90);
+        ctx.lineTo(35, -80);
+        ctx.lineTo(35, -60);
+        ctx.lineTo(2, -55);
+        ctx.stroke();
+        
+        // Sandbag fortification around base
+        this.drawSandbagPile(ctx, -50, 20, 25, 3);
+        this.drawSandbagPile(ctx, 30, 20, 20, 2);
+        
+        this.renderHealthBar(ctx, building, 70);
         
         ctx.restore();
+    }
+    
+    drawSandbagPile(ctx, x, y, width, rows) {
+        for (let row = 0; row < rows; row++) {
+            const rowY = y - row * 6;
+            const bags = Math.floor((width - row * 4) / 10);
+            const startX = x + row * 2;
+            
+            for (let i = 0; i < bags; i++) {
+                const bagX = startX + i * 10 + (row % 2) * 5;
+                
+                // Sandbag shadow
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+                ctx.beginPath();
+                ctx.ellipse(bagX + 5, rowY + 2, 6, 4, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Sandbag
+                ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+                ctx.beginPath();
+                ctx.ellipse(bagX + 5, rowY, 6, 3.5, 0, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Sandbag highlight
+                ctx.fillStyle = '#9a8a6a';
+                ctx.beginPath();
+                ctx.ellipse(bagX + 4, rowY - 1, 3, 2, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
     }
     
     renderMachineGun(ctx, building) {
@@ -918,40 +865,94 @@ export class BuildingManager {
             ctx.globalAlpha = 0.5;
         }
         
-        // Sandbag emplacement
-        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
-        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
-        ctx.arc(0, 0, 22, 0, Math.PI * 2);
+        ctx.ellipse(3, 15, 28, 10, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.stroke();
         
+        // Sandbag emplacement - layered sandbags
+        // Outer ring
+        for (let angle = 0; angle < Math.PI * 2; angle += 0.4) {
+            const bx = Math.cos(angle) * 22;
+            const by = Math.sin(angle) * 18;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx, by + 2, 8, 5, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 7, 4, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Inner dark pit
         ctx.fillStyle = CONFIG.COLORS.TRENCH;
         ctx.beginPath();
-        ctx.arc(0, 0, 15, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, 14, 12, 0, 0, Math.PI * 2);
         ctx.fill();
         
-        // Gun (only show if not blueprint)
+        // Duckboard floor
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-8, -6, 16, 12);
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 1;
+        for (let i = -6; i <= 6; i += 3) {
+            ctx.beginPath();
+            ctx.moveTo(-7, i);
+            ctx.lineTo(7, i);
+            ctx.stroke();
+        }
+        
+        // Machine gun (only show if not blueprint)
         if (!building.isBlueprint) {
             ctx.save();
             ctx.rotate(building.angle);
             
-            ctx.strokeStyle = '#333';
+            // Tripod legs
+            ctx.strokeStyle = CONFIG.COLORS.METAL;
             ctx.lineWidth = 3;
             ctx.beginPath();
-            ctx.moveTo(-8, -8);
-            ctx.lineTo(5, 0);
-            ctx.moveTo(-8, 8);
-            ctx.lineTo(5, 0);
+            ctx.moveTo(-8, -10);
+            ctx.lineTo(0, 0);
+            ctx.moveTo(-8, 10);
+            ctx.lineTo(0, 0);
+            ctx.moveTo(-12, 0);
+            ctx.lineTo(0, 0);
             ctx.stroke();
             
-            ctx.fillStyle = '#444';
-            ctx.fillRect(0, -5, 25, 10);
+            // Gun body
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(-5, -6, 30, 12);
             
-            ctx.fillStyle = '#333';
-            ctx.fillRect(20, -2, 15, 4);
+            // Cooling jacket (ribbed)
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fillRect(8, -5, 20, 10);
+            for (let i = 0; i < 6; i++) {
+                ctx.fillStyle = i % 2 === 0 ? '#4a4a4a' : '#3a3a3a';
+                ctx.fillRect(10 + i * 3, -5, 2, 10);
+            }
+            
+            // Barrel
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(25, -3, 15, 6);
+            
+            // Muzzle
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(40, 0, 4, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Ammo belt box
+            ctx.fillStyle = '#3a3020';
+            ctx.fillRect(-8, 4, 12, 8);
+            
+            // Spade grip handles
+            ctx.fillStyle = '#3a2a1a';
+            ctx.fillRect(-10, -4, 6, 3);
+            ctx.fillRect(-10, 1, 6, 3);
             
             ctx.restore();
         }
@@ -959,20 +960,23 @@ export class BuildingManager {
         // Build progress bar
         if (building.isBlueprint) {
             ctx.globalAlpha = 1;
-            const barWidth = 30;
+            const barWidth = 35;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 32, barWidth + 2, 6);
             ctx.fillStyle = '#333';
-            ctx.fillRect(-barWidth/2, 30, barWidth, 4);
-            ctx.fillStyle = '#4a4';
-            ctx.fillRect(-barWidth/2, 30, barWidth * building.buildProgress, 4);
+            ctx.fillRect(-barWidth/2, 33, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 33, barWidth * building.buildProgress, 4);
         } else if (!building.assignedUnit && building.needsManning) {
-            // Show "needs crew" indicator
-            ctx.fillStyle = '#aa4444';
-            ctx.font = '10px sans-serif';
+            // Show "needs crew" indicator - pulsing
+            const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+            ctx.fillStyle = `rgba(170, 68, 68, ${pulse})`;
+            ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('NO CREW', 0, 35);
+            ctx.fillText('NO CREW', 0, 38);
         }
         
-        this.renderHealthBar(ctx, building, 30);
+        this.renderHealthBar(ctx, building, 35);
         
         ctx.restore();
     }
@@ -985,81 +989,215 @@ export class BuildingManager {
             ctx.globalAlpha = 0.5;
         }
         
-        ctx.fillStyle = '#4a3728';
-        ctx.fillRect(-25, -15, 50, 30);
-        
-        ctx.fillStyle = '#333';
-        ctx.strokeStyle = '#222';
-        ctx.lineWidth = 2;
-        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
-        ctx.arc(-20, 15, 12, 0, Math.PI * 2);
+        ctx.ellipse(5, 25, 45, 15, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.stroke();
         
+        // Gun platform/base
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-35, -5, 70, 25);
+        
+        // Platform planks detail
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 1;
+        for (let x = -30; x <= 30; x += 8) {
+            ctx.beginPath();
+            ctx.moveTo(x, -5);
+            ctx.lineTo(x, 20);
+            ctx.stroke();
+        }
+        
+        // Wheels - large wooden spoked wheels
+        this.drawArtilleryWheel(ctx, -28, 15, 16);
+        this.drawArtilleryWheel(ctx, 28, 15, 16);
+        
+        // Gun carriage
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-20, -8, 40, 18);
+        
+        // Trail (the back part that digs into ground)
+        ctx.fillStyle = '#3a3020';
         ctx.beginPath();
-        ctx.arc(20, 15, 12, 0, Math.PI * 2);
+        ctx.moveTo(-25, 5);
+        ctx.lineTo(-45, 20);
+        ctx.lineTo(-40, 25);
+        ctx.lineTo(-20, 10);
+        ctx.closePath();
         ctx.fill();
-        ctx.stroke();
         
         if (!building.isBlueprint) {
             ctx.save();
             ctx.rotate(building.angle);
             
-            ctx.fillStyle = '#555';
-            ctx.fillRect(-10, -8, 50, 16);
+            // Gun barrel housing/breech
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(-15, -10, 35, 20);
             
-            ctx.fillStyle = '#444';
-            ctx.fillRect(35, -6, 20, 12);
+            // Barrel - field gun style
+            ctx.fillStyle = '#3a3a3a';
+            ctx.fillRect(15, -6, 45, 12);
             
-            ctx.fillStyle = '#333';
+            // Barrel taper
+            ctx.fillStyle = '#3a3a3a';
             ctx.beginPath();
-            ctx.arc(55, 0, 8, 0, Math.PI * 2);
+            ctx.moveTo(55, -6);
+            ctx.lineTo(70, -4);
+            ctx.lineTo(70, 4);
+            ctx.lineTo(55, 6);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Muzzle
+            ctx.fillStyle = '#2a2a2a';
+            ctx.beginPath();
+            ctx.arc(72, 0, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.arc(72, 0, 3, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Recoil mechanism housing
+            ctx.fillStyle = '#5a5a5a';
+            ctx.fillRect(5, -12, 15, 6);
+            ctx.fillRect(5, 6, 15, 6);
+            
+            // Elevation wheel
+            ctx.fillStyle = '#4a4a4a';
+            ctx.beginPath();
+            ctx.arc(-10, 0, 8, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#3a3a3a';
+            ctx.beginPath();
+            ctx.arc(-10, 0, 5, 0, Math.PI * 2);
             ctx.fill();
             
             ctx.restore();
         }
         
-        ctx.fillStyle = '#666';
-        ctx.fillRect(-15, -12, 20, 24);
+        // Shield (gun shield for crew protection)
+        if (!building.isBlueprint) {
+            ctx.fillStyle = '#4a4a4a';
+            ctx.beginPath();
+            ctx.moveTo(-18, -20);
+            ctx.lineTo(18, -20);
+            ctx.lineTo(20, -5);
+            ctx.lineTo(-20, -5);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Shield rivet details
+            ctx.fillStyle = '#5a5a5a';
+            for (let x = -12; x <= 12; x += 8) {
+                ctx.beginPath();
+                ctx.arc(x, -12, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
         
         // Build progress bar
         if (building.isBlueprint) {
             ctx.globalAlpha = 1;
-            const barWidth = 40;
+            const barWidth = 50;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 38, barWidth + 2, 6);
             ctx.fillStyle = '#333';
-            ctx.fillRect(-barWidth/2, 35, barWidth, 4);
-            ctx.fillStyle = '#4a4';
-            ctx.fillRect(-barWidth/2, 35, barWidth * building.buildProgress, 4);
+            ctx.fillRect(-barWidth/2, 39, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 39, barWidth * building.buildProgress, 4);
         } else if (!building.assignedUnit && building.needsManning) {
-            ctx.fillStyle = '#aa4444';
-            ctx.font = '10px sans-serif';
+            const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+            ctx.fillStyle = `rgba(170, 68, 68, ${pulse})`;
+            ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('NO CREW', 0, 40);
+            ctx.fillText('NO CREW', 0, 45);
         }
         
-        this.renderHealthBar(ctx, building, 40);
+        this.renderHealthBar(ctx, building, 50);
         
         ctx.restore();
+    }
+    
+    drawArtilleryWheel(ctx, x, y, radius) {
+        // Outer rim
+        ctx.fillStyle = '#2a2a2a';
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Inner wooden part
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.beginPath();
+        ctx.arc(x, y, radius - 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Spokes
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK_LIGHT;
+        ctx.lineWidth = 2;
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+            ctx.lineTo(x + Math.cos(angle) * (radius - 3), y + Math.sin(angle) * (radius - 3));
+            ctx.stroke();
+        }
+        
+        // Hub
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#3a3a3a';
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
     }
     
     renderDestroyed(ctx, building) {
         ctx.save();
         ctx.translate(building.x, building.y);
-        ctx.globalAlpha = 0.6;
         
-        ctx.fillStyle = '#333';
-        for (let i = 0; i < 8; i++) {
-            const x = (Math.random() - 0.5) * building.radius * 1.5;
-            const y = (Math.random() - 0.5) * building.radius * 1.5;
-            const size = 5 + Math.random() * 15;
-            ctx.fillRect(x, y, size, size);
+        // Burn mark on ground
+        ctx.fillStyle = '#1a1a0a';
+        ctx.beginPath();
+        ctx.ellipse(0, 5, building.radius * 1.2, building.radius * 0.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Debris - more detailed
+        const debrisCount = building.type === 'hq' ? 15 : 10;
+        for (let i = 0; i < debrisCount; i++) {
+            const angle = (i / debrisCount) * Math.PI * 2 + building.x * 0.1;
+            const dist = Math.random() * building.radius * 1.2;
+            const x = Math.cos(angle) * dist;
+            const y = Math.sin(angle) * dist * 0.7;
+            const size = 3 + Math.random() * 12;
+            
+            // Debris pieces
+            if (i % 3 === 0) {
+                ctx.fillStyle = CONFIG.COLORS.DEBRIS;
+            } else if (i % 3 === 1) {
+                ctx.fillStyle = '#2a2a1a';
+            } else {
+                ctx.fillStyle = CONFIG.COLORS.METAL;
+            }
+            ctx.fillRect(x - size/2, y - size/2, size, size * 0.7);
         }
         
-        ctx.fillStyle = 'rgba(50, 50, 50, 0.3)';
-        ctx.beginPath();
-        ctx.arc(0, -20, 20, 0, Math.PI * 2);
-        ctx.fill();
+        // Smoke wisps (subtle)
+        ctx.globalAlpha = 0.3;
+        ctx.fillStyle = '#3a3530';
+        for (let i = 0; i < 3; i++) {
+            const time = Date.now() / 1000;
+            const x = Math.sin(time + i * 2) * 10;
+            const y = -20 - i * 15 - (time % 3) * 10;
+            const size = 15 + i * 5;
+            ctx.beginPath();
+            ctx.arc(x, y, size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
         
         ctx.restore();
     }
@@ -1072,10 +1210,24 @@ export class BuildingManager {
         
         if (healthPercent >= 1) return;
         
-        ctx.fillStyle = '#333';
-        ctx.fillRect(-width/2, -building.radius - 15, width, barHeight);
+        const barY = building.type === 'hq' ? -building.radius - 50 : -building.radius - 20;
         
-        ctx.fillStyle = healthPercent > 0.5 ? '#0f0' : healthPercent > 0.25 ? '#ff0' : '#f00';
-        ctx.fillRect(-width/2, -building.radius - 15, width * healthPercent, barHeight);
+        // Background
+        ctx.fillStyle = '#1a1a1a';
+        ctx.fillRect(-width/2 - 1, barY - 1, width + 2, barHeight + 2);
+        
+        // Bar background
+        ctx.fillStyle = '#333';
+        ctx.fillRect(-width/2, barY, width, barHeight);
+        
+        // Health bar with color gradient
+        const healthColor = healthPercent > 0.6 ? '#44dd44' : 
+                           healthPercent > 0.3 ? '#dddd44' : '#dd4444';
+        ctx.fillStyle = healthColor;
+        ctx.fillRect(-width/2, barY, width * healthPercent, barHeight);
+        
+        // Highlight on top of health bar
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.fillRect(-width/2, barY, width * healthPercent, 1);
     }
 }
