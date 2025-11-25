@@ -384,6 +384,13 @@ export class BuildingManager {
     }
     
     updateWeapon(building, dt) {
+        // Artillery uses special targeting for long-range bombardment
+        if (building.type === 'artillery') {
+            this.updateArtillery(building, dt);
+            return;
+        }
+        
+        // Machine guns target nearby enemies
         const enemies = this.game.unitManager.getEnemiesInRange(
             building.x, building.y, building.range, building.team
         );
@@ -416,6 +423,134 @@ export class BuildingManager {
             this.fire(building, target);
             building.attackCooldown = 1 / building.fireRate;
         }
+    }
+    
+    updateArtillery(building, dt) {
+        // Artillery prioritizes: 1. Enemy artillery 2. Enemy MGs 3. Enemy HQ 4. Unit clusters 5. Trenches
+        const enemyTeam = building.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
+        
+        let bestTarget = null;
+        let bestPriority = -1;
+        
+        // Check enemy buildings first
+        for (const enemyBuilding of this.buildings) {
+            if (enemyBuilding.team !== enemyTeam || enemyBuilding.destroyed) continue;
+            
+            const dist = Math.sqrt((enemyBuilding.x - building.x) ** 2 + (enemyBuilding.y - building.y) ** 2);
+            if (dist > building.range) continue;
+            
+            let priority = 0;
+            if (enemyBuilding.type === 'artillery') priority = 100;
+            else if (enemyBuilding.type === 'machinegun') priority = 80;
+            else if (enemyBuilding.type === 'hq') priority = 60;
+            
+            // Add some randomness to avoid always targeting the same thing
+            priority += Math.random() * 20;
+            
+            if (priority > bestPriority) {
+                bestPriority = priority;
+                bestTarget = { x: enemyBuilding.x, y: enemyBuilding.y, type: 'building' };
+            }
+        }
+        
+        // Check for enemy unit clusters
+        const enemies = this.game.unitManager.getEnemiesInRange(
+            building.x, building.y, building.range, building.team
+        );
+        
+        if (enemies.length > 0) {
+            // Find clusters of enemies
+            const clusterRadius = 60;
+            for (const enemy of enemies) {
+                const nearbyCount = enemies.filter(e => {
+                    const d = Math.sqrt((e.x - enemy.x) ** 2 + (e.y - enemy.y) ** 2);
+                    return d < clusterRadius;
+                }).length;
+                
+                // Clusters are valuable targets
+                const priority = 30 + nearbyCount * 15 + Math.random() * 10;
+                
+                if (priority > bestPriority) {
+                    bestPriority = priority;
+                    bestTarget = { x: enemy.x, y: enemy.y, type: 'unit' };
+                }
+            }
+        }
+        
+        // Check enemy trenches
+        for (const trench of this.game.trenchSystem.trenches) {
+            if (trench.team !== enemyTeam || trench.isBlueprint || trench.destroyed) continue;
+            
+            // Target the center of the trench
+            const centerIdx = Math.floor(trench.points.length / 2);
+            const centerPoint = trench.points[centerIdx];
+            
+            const dist = Math.sqrt((centerPoint.x - building.x) ** 2 + (centerPoint.y - building.y) ** 2);
+            if (dist > building.range) continue;
+            
+            // Check if there are enemies in the trench
+            const unitsInTrench = enemies.filter(e => {
+                const trenchDist = this.game.trenchSystem.pointToSegmentDistance(
+                    e.x, e.y, trench.segments[0].start, trench.segments[trench.segments.length - 1].end
+                );
+                return trenchDist < 30;
+            }).length;
+            
+            const priority = 20 + unitsInTrench * 20 + Math.random() * 10;
+            
+            if (priority > bestPriority) {
+                bestPriority = priority;
+                bestTarget = { x: centerPoint.x, y: centerPoint.y, type: 'trench' };
+            }
+        }
+        
+        if (!bestTarget) {
+            building.target = null;
+            return;
+        }
+        
+        building.target = bestTarget;
+        
+        // Aim at target
+        const targetAngle = Math.atan2(bestTarget.y - building.y, bestTarget.x - building.x);
+        const angleDiff = targetAngle - building.angle;
+        building.angle += angleDiff * 3 * dt;
+        
+        // Fire when ready
+        if (building.attackCooldown <= 0) {
+            this.fireArtillery(building, bestTarget);
+            building.attackCooldown = 1 / building.fireRate;
+        }
+    }
+    
+    fireArtillery(building, target) {
+        // Add some scatter to the shot based on distance
+        const dist = Math.sqrt((target.x - building.x) ** 2 + (target.y - building.y) ** 2);
+        const scatter = Math.min(60, dist * 0.03); // More scatter at longer range
+        
+        const targetX = target.x + (Math.random() - 0.5) * scatter;
+        const targetY = target.y + (Math.random() - 0.5) * scatter;
+        
+        // Muzzle flash
+        this.game.addEffect('muzzle',
+            building.x + Math.cos(building.angle) * 35,
+            building.y + Math.sin(building.angle) * 35,
+            { size: 30, duration: 0.2 }
+        );
+        
+        // Flight time based on distance (min 0.5s, max 2s)
+        const flightTime = Math.min(2000, Math.max(500, dist * 1.2));
+        
+        // Shell arc effect
+        this.game.addEffect('shell_arc', building.x, building.y, {
+            targetX, targetY,
+            duration: flightTime / 1000,
+            size: 8
+        });
+        
+        setTimeout(() => {
+            this.artilleryExplosion(targetX, targetY, building);
+        }, flightTime);
     }
     
     fire(building, target) {
@@ -465,6 +600,7 @@ export class BuildingManager {
         const splashRadius = source.splashRadius || 50;
         const allUnits = this.game.unitManager.units;
         
+        // Damage units
         for (const unit of allUnits) {
             const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
             if (dist < splashRadius) {
@@ -475,27 +611,92 @@ export class BuildingManager {
             }
         }
         
+        // Damage buildings
         for (const building of this.buildings) {
             if (building === source || building.destroyed) continue;
             
             const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
             if (dist < splashRadius) {
                 const falloff = 1 - (dist / splashRadius);
-                building.health -= source.damage * falloff * 0.5;
+                this.damageBuilding(building, source.damage * falloff * 0.5);
+            }
+        }
+        
+        // Damage trenches
+        this.game.trenchSystem.damageTrenchesAtPoint(x, y, splashRadius, source.damage * 0.3);
+        
+        // Damage barbed wire
+        for (const wire of this.barbedWireLines) {
+            if (wire.destroyed) continue;
+            
+            for (const seg of wire.segments) {
+                if (!seg.built) continue;
                 
-                if (building.health <= 0) {
-                    building.destroyed = true;
-                    if (building.assignedUnit) {
-                        building.assignedUnit.mannedBuilding = null;
-                        building.assignedUnit = null;
+                const midX = (seg.start.x + seg.end.x) / 2;
+                const midY = (seg.start.y + seg.end.y) / 2;
+                const dist = Math.sqrt((midX - x) ** 2 + (midY - y) ** 2);
+                
+                if (dist < splashRadius) {
+                    const falloff = 1 - (dist / splashRadius);
+                    wire.health -= source.damage * falloff * 0.4;
+                    
+                    if (wire.health <= 0) {
+                        wire.destroyed = true;
+                        this.game.addEffect('dirt', midX, midY, { size: 15, duration: 0.5 });
                     }
-                    this.game.addEffect('explosion', building.x, building.y, {
-                        size: 50,
-                        duration: 0.8
-                    });
                 }
             }
         }
+    }
+    
+    damageBuilding(building, amount) {
+        building.health -= amount;
+        
+        // Mark as damaged for repair system
+        if (!building.damaged && building.health < building.maxHealth) {
+            building.damaged = true;
+        }
+        
+        if (building.health <= 0) {
+            building.destroyed = true;
+            if (building.assignedUnit) {
+                building.assignedUnit.mannedBuilding = null;
+                building.assignedUnit = null;
+            }
+            this.game.addEffect('explosion', building.x, building.y, {
+                size: building.type === 'hq' ? 80 : 50,
+                duration: 0.8
+            });
+        }
+    }
+    
+    // Find damaged buildings that need repair
+    findDamagedStructure(x, y, team) {
+        let nearest = null;
+        let minDist = Infinity;
+        
+        for (const building of this.buildings) {
+            if (building.team !== team || building.destroyed || building.isBlueprint) continue;
+            if (building.health >= building.maxHealth) continue;
+            
+            const dist = Math.sqrt((building.x - x) ** 2 + (building.y - y) ** 2);
+            if (dist < minDist) {
+                minDist = dist;
+                nearest = { type: 'building', target: building, x: building.x, y: building.y };
+            }
+        }
+        
+        return nearest;
+    }
+    
+    repairBuilding(building, amount) {
+        building.health = Math.min(building.maxHealth, building.health + amount);
+        
+        if (building.health >= building.maxHealth) {
+            building.damaged = false;
+            return true; // Fully repaired
+        }
+        return false;
     }
     
     updateBarbedWireEffect(wire) {
