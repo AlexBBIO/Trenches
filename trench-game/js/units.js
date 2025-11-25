@@ -130,11 +130,17 @@ export class UnitManager {
         }
     }
     
-    render(ctx) {
+    render(ctx, renderer = null) {
         // Sort by Y for depth
         const sortedUnits = [...this.units].sort((a, b) => a.y - b.y);
         
         for (const unit of sortedUnits) {
+            // Hide enemy units in fog of war
+            if (renderer && unit.team === CONFIG.TEAM_ENEMY) {
+                if (!renderer.isPositionVisible(unit.x, unit.y)) {
+                    continue; // Don't render enemies in fog
+                }
+            }
             unit.render(ctx);
         }
     }
@@ -376,6 +382,33 @@ class Unit {
     updateIdle(dt) {
         // Soldiers: Look for enemies in range or man positions
         if (this.type === 'soldier') {
+            // PRIORITY 0: If wounded and near a medical tent, seek it for healing
+            if (this.health < this.maxHealth * 0.7 && !this.mannedBuilding && !this.inBunker) {
+                const medicalTent = this.findNearestMedicalTent();
+                if (medicalTent) {
+                    // Only seek if within the tent's pull range (healRange)
+                    const dist = Math.sqrt((medicalTent.x - this.x) ** 2 + (medicalTent.y - this.y) ** 2);
+                    if (dist <= medicalTent.healRange) {
+                        this.seekingMedicalTent = medicalTent;
+                        this.targetX = medicalTent.x + (Math.random() - 0.5) * 20;
+                        this.targetY = medicalTent.y + (Math.random() - 0.5) * 20;
+                        this.setState(UnitState.MOVING);
+                        return;
+                    }
+                }
+            }
+            
+            // Clear medical tent seeking if healed
+            if (this.seekingMedicalTent && this.health >= this.maxHealth * 0.9) {
+                this.seekingMedicalTent = null;
+            }
+            
+            // If in a bunker, stay there and let bunker handle firing
+            if (this.inBunker) {
+                // Stay in bunker - bunker's updateBunker handles combat
+                return;
+            }
+            
             // If manning an emplacement, stay there and look for enemies
             if (this.mannedBuilding) {
                 // Stay at building position
@@ -383,10 +416,32 @@ class Unit {
                 this.y = this.mannedBuilding.y;
             } else {
                 // Not manning anything - check for unmanned emplacements to man
-                const unmanned = this.game.buildingManager.getUnmannedEmplacement(this.team);
-                if (unmanned) {
-                    this.assignToEmplacement(unmanned);
-                    return;
+                // But only if not seeking healing
+                if (!this.seekingMedicalTent) {
+                    const unmanned = this.game.buildingManager.getUnmannedEmplacement(this.team);
+                    if (unmanned) {
+                        this.assignToEmplacement(unmanned);
+                        return;
+                    }
+                    
+                    // Check for available bunkers to enter
+                    const bunker = this.game.buildingManager.findAvailableBunker(this.team);
+                    if (bunker) {
+                        // Move toward the bunker
+                        const dist = Math.sqrt((bunker.x - this.x) ** 2 + (bunker.y - this.y) ** 2);
+                        if (dist < 30) {
+                            // Close enough - enter the bunker
+                            this.game.buildingManager.enterBunker(this, bunker);
+                            return;
+                        } else {
+                            // Move to bunker
+                            this.targetX = bunker.x;
+                            this.targetY = bunker.y;
+                            this.seekingBunker = bunker;
+                            this.setState(UnitState.MOVING);
+                            return;
+                        }
+                    }
                 }
             }
             
@@ -424,7 +479,8 @@ class Unit {
                 }
             }
             
-            if (closestTarget) {
+            // Don't fight if seeking medical tent (prioritize healing)
+            if (closestTarget && !this.seekingMedicalTent) {
                 this.attackTarget = closestTarget;
                 this.setState(UnitState.FIGHTING);
             }
@@ -547,6 +603,31 @@ class Unit {
         return repairTarget;
     }
     
+    // Find the nearest friendly medical tent for healing
+    findNearestMedicalTent() {
+        const medicalTents = this.game.buildingManager.buildings.filter(b => 
+            b.type === 'medical_tent' && 
+            b.team === this.team && 
+            !b.destroyed && 
+            !b.isBlueprint
+        );
+        
+        if (medicalTents.length === 0) return null;
+        
+        let closest = null;
+        let closestDist = Infinity;
+        
+        for (const tent of medicalTents) {
+            const dist = Math.sqrt((tent.x - this.x) ** 2 + (tent.y - this.y) ** 2);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = tent;
+            }
+        }
+        
+        return closest;
+    }
+    
     // Assign a repair task to this worker (claims the target to prevent bunching)
     assignRepairTask(repairTarget) {
         if (repairTarget.type === 'building') {
@@ -623,6 +704,15 @@ class Unit {
                     this.setState(UnitState.WORKING);
                     return;
                 }
+            }
+            
+            // Check if we were seeking a bunker - enter it
+            if (this.seekingBunker && !this.seekingBunker.destroyed && !this.seekingBunker.isBlueprint) {
+                if (this.seekingBunker.occupants.length < this.seekingBunker.capacity) {
+                    this.game.buildingManager.enterBunker(this, this.seekingBunker);
+                }
+                this.seekingBunker = null;
+                return;
             }
             
             if (this.state === UnitState.RETREATING) {
@@ -1516,8 +1606,15 @@ class Unit {
     }
     
     takeDamage(amount, attacker) {
-        // Apply trench defense bonus
-        const defenseBonus = this.game.trenchSystem.getTrenchDefenseBonus(this);
+        // Apply bunker protection (highest priority)
+        let defenseBonus = 0;
+        if (this.inBunker && !this.inBunker.destroyed) {
+            defenseBonus = this.inBunker.protection || CONFIG.BUNKER_PROTECTION;
+        } else {
+            // Apply trench defense bonus
+            defenseBonus = this.game.trenchSystem.getTrenchDefenseBonus(this);
+        }
+        
         const actualDamage = amount * (1 - defenseBonus);
         
         this.health -= actualDamage;
@@ -1527,11 +1624,13 @@ class Unit {
             this.die();
         }
         
-        // Blood effect
-        this.game.addEffect('blood', this.x, this.y, {
-            size: 5 + Math.random() * 5,
-            duration: 1.5
-        });
+        // Blood effect (only if not in bunker)
+        if (!this.inBunker) {
+            this.game.addEffect('blood', this.x, this.y, {
+                size: 5 + Math.random() * 5,
+                duration: 1.5
+            });
+        }
     }
     
     die() {
@@ -1553,6 +1652,14 @@ class Unit {
             this.mannedBuilding.assignedUnit = null;
             this.mannedBuilding = null;
         }
+        
+        // Exit bunker if inside one
+        if (this.inBunker) {
+            this.game.buildingManager.exitBunker(this);
+        }
+        
+        // Clear healing flag
+        this.isBeingHealed = false;
         
         // Decrease manpower
         if (this.team === CONFIG.TEAM_PLAYER) {

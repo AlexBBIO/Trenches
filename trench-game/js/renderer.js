@@ -33,7 +33,130 @@ export class Renderer {
         // Blood stains that persist on the terrain
         this.bloodStains = [];
         
+        // Fog of War
+        this.fogCanvas = null;
+        this.fogCtx = null;
+        this.fogGridSize = 20; // Size of each fog cell
+        this.exploredCells = new Set(); // Cells that have been explored (light fog)
+        this.visibleCells = new Set();  // Cells currently visible (no fog)
+        
         this.generateTerrain();
+        this.initFogOfWar();
+    }
+    
+    initFogOfWar() {
+        // Create fog canvas
+        this.fogCanvas = document.createElement('canvas');
+        this.fogCanvas.width = CONFIG.MAP_WIDTH;
+        this.fogCanvas.height = CONFIG.MAP_HEIGHT;
+        this.fogCtx = this.fogCanvas.getContext('2d');
+        
+        // Initialize all cells as unexplored (black fog)
+        this.exploredCells.clear();
+        this.visibleCells.clear();
+    }
+    
+    // Convert world position to fog grid cell key
+    getFogCellKey(x, y) {
+        const cellX = Math.floor(x / this.fogGridSize);
+        const cellY = Math.floor(y / this.fogGridSize);
+        return `${cellX},${cellY}`;
+    }
+    
+    // Update visibility based on units and buildings
+    updateFogOfWar() {
+        // Clear currently visible cells
+        this.visibleCells.clear();
+        
+        // Get all player units and buildings
+        const playerUnits = this.game.unitManager.units.filter(u => 
+            u.team === CONFIG.TEAM_PLAYER && u.state !== 'dead'
+        );
+        
+        const playerBuildings = this.game.buildingManager.buildings.filter(b => 
+            b.team === CONFIG.TEAM_PLAYER && !b.destroyed && !b.isBlueprint
+        );
+        
+        // Reveal cells around each unit
+        for (const unit of playerUnits) {
+            const visionRange = unit.type === 'soldier' ? CONFIG.VISION_SOLDIER : CONFIG.VISION_WORKER;
+            this.revealArea(unit.x, unit.y, visionRange);
+        }
+        
+        // Reveal cells around each building
+        for (const building of playerBuildings) {
+            let visionRange = CONFIG.VISION_BUILDING;
+            if (building.type === 'hq') {
+                visionRange = CONFIG.VISION_HQ;
+            } else if (building.type === 'observation_post' && building.assignedUnit) {
+                visionRange = CONFIG.VISION_OBSERVATION_POST;
+            }
+            this.revealArea(building.x, building.y, visionRange);
+        }
+    }
+    
+    // Reveal an area around a point
+    revealArea(centerX, centerY, radius) {
+        const cellRadius = Math.ceil(radius / this.fogGridSize);
+        const centerCellX = Math.floor(centerX / this.fogGridSize);
+        const centerCellY = Math.floor(centerY / this.fogGridSize);
+        
+        for (let dy = -cellRadius; dy <= cellRadius; dy++) {
+            for (let dx = -cellRadius; dx <= cellRadius; dx++) {
+                const cellX = centerCellX + dx;
+                const cellY = centerCellY + dy;
+                
+                // Check if within circular radius
+                const worldX = cellX * this.fogGridSize + this.fogGridSize / 2;
+                const worldY = cellY * this.fogGridSize + this.fogGridSize / 2;
+                const dist = Math.sqrt((worldX - centerX) ** 2 + (worldY - centerY) ** 2);
+                
+                if (dist <= radius) {
+                    const key = `${cellX},${cellY}`;
+                    this.visibleCells.add(key);
+                    this.exploredCells.add(key);
+                }
+            }
+        }
+    }
+    
+    // Check if a position is visible to the player
+    isPositionVisible(x, y) {
+        const key = this.getFogCellKey(x, y);
+        return this.visibleCells.has(key);
+    }
+    
+    // Check if a position has been explored
+    isPositionExplored(x, y) {
+        const key = this.getFogCellKey(x, y);
+        return this.exploredCells.has(key);
+    }
+    
+    // Render the fog of war layer
+    renderFogOfWar(ctx) {
+        const gridW = Math.ceil(CONFIG.MAP_WIDTH / this.fogGridSize);
+        const gridH = Math.ceil(CONFIG.MAP_HEIGHT / this.fogGridSize);
+        
+        for (let gy = 0; gy < gridH; gy++) {
+            for (let gx = 0; gx < gridW; gx++) {
+                const key = `${gx},${gy}`;
+                const x = gx * this.fogGridSize;
+                const y = gy * this.fogGridSize;
+                
+                if (this.visibleCells.has(key)) {
+                    // Fully visible - no fog
+                    continue;
+                } else if (this.exploredCells.has(key)) {
+                    // Explored but not currently visible - light fog
+                    ctx.fillStyle = 'rgba(20, 18, 15, 0.5)';
+                    ctx.fillRect(x, y, this.fogGridSize, this.fogGridSize);
+                } else {
+                    // Unexplored - dark fog
+                    ctx.fillStyle = 'rgba(10, 10, 8, 0.9)';
+                    ctx.fillRect(x, y, this.fogGridSize, this.fogGridSize);
+                }
+            }
+        }
     }
     
     updateViewport() {
@@ -614,6 +737,9 @@ export class Renderer {
         const ctx = this.ctx;
         this.time += 1/60;
         
+        // Update Fog of War visibility
+        this.updateFogOfWar();
+        
         // Clear canvas with dark color
         ctx.fillStyle = '#0a0a05';
         ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
@@ -634,12 +760,15 @@ export class Renderer {
         
         // Draw game elements
         this.game.trenchSystem.render(ctx);
-        this.game.buildingManager.render(ctx);
-        this.game.unitManager.render(ctx);
+        this.game.buildingManager.render(ctx, this); // Pass renderer for FoW checks
+        this.game.unitManager.render(ctx, this);     // Pass renderer for FoW checks
         this.game.trainSystem.render(ctx);
         
         // Draw effects
         this.renderEffects(ctx);
+        
+        // Draw Fog of War overlay
+        this.renderFogOfWar(ctx);
         
         // Draw selection box if dragging
         if (this.game.input.isDraggingSelection) {
@@ -1087,7 +1216,6 @@ export class Renderer {
                 ctx.arc(preview.x, preview.y, 25, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.stroke();
-                // Range indicator
                 if (canPlace) {
                     ctx.globalAlpha = 0.1;
                     ctx.beginPath();
@@ -1100,7 +1228,6 @@ export class Renderer {
                 ctx.arc(preview.x, preview.y, 35, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.stroke();
-                // Range indicator
                 if (canPlace) {
                     ctx.globalAlpha = 0.1;
                     ctx.beginPath();
@@ -1110,6 +1237,66 @@ export class Renderer {
                 break;
             case 'barbed':
                 ctx.strokeRect(preview.x - 30, preview.y - 10, 60, 20);
+                break;
+            case 'medical_tent':
+                ctx.beginPath();
+                ctx.arc(preview.x, preview.y, 30, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                if (canPlace) {
+                    ctx.globalAlpha = 0.15;
+                    ctx.strokeStyle = '#44ff44';
+                    ctx.setLineDash([5, 5]);
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.MEDICAL_TENT_HEAL_RANGE, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                break;
+            case 'bunker':
+                ctx.beginPath();
+                ctx.arc(preview.x, preview.y, 35, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                if (canPlace) {
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.RIFLE_RANGE, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                break;
+            case 'observation_post':
+                ctx.beginPath();
+                ctx.arc(preview.x, preview.y, 20, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                if (canPlace) {
+                    ctx.globalAlpha = 0.08;
+                    ctx.strokeStyle = '#4488ff';
+                    ctx.setLineDash([8, 8]);
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.VISION_OBSERVATION_POST, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+                break;
+            case 'supply_depot':
+                ctx.beginPath();
+                ctx.arc(preview.x, preview.y, 35, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                break;
+            case 'mortar':
+                ctx.beginPath();
+                ctx.arc(preview.x, preview.y, 25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.stroke();
+                if (canPlace) {
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath();
+                    ctx.arc(preview.x, preview.y, CONFIG.MORTAR_RANGE, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
                 break;
         }
         

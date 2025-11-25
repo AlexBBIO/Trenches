@@ -148,9 +148,9 @@ export class TrainSystem {
         const train = {
             id: this.trainIdCounter++,
             team: CONFIG.TEAM_PLAYER,
-            x: -200,
-            y: CONFIG.MAP_HEIGHT / 2,
-            targetX: 50,
+            x: 50,  // Track is at x=50 for player
+            y: -200, // Start from top of map
+            targetY: CONFIG.MAP_HEIGHT / 2, // Stop at HQ level
             speed: 150,
             state: 'arriving',
             stopTime: 0,
@@ -169,12 +169,15 @@ export class TrainSystem {
     spawnTrain(team) {
         const cargo = this.getCargoAmounts();
         
+        const isPlayer = team === CONFIG.TEAM_PLAYER;
+        const trackX = isPlayer ? 50 : CONFIG.MAP_WIDTH - 50;
+        
         const train = {
             id: this.trainIdCounter++,
             team,
-            x: CONFIG.MAP_WIDTH + 200,
-            y: CONFIG.MAP_HEIGHT / 2,
-            targetX: CONFIG.MAP_WIDTH - 50,
+            x: trackX,
+            y: -200, // Start from top of map
+            targetY: CONFIG.MAP_HEIGHT / 2, // Stop at HQ level
             speed: 150,
             state: 'arriving', // arriving, stopped, departing, departed
             stopTime: 0,
@@ -204,15 +207,12 @@ export class TrainSystem {
     }
     
     updateArriving(train, dt) {
-        const isPlayer = train.team === CONFIG.TEAM_PLAYER;
-        const direction = isPlayer ? 1 : -1;
+        // Train moves down (positive Y direction)
+        train.y += train.speed * dt;
         
-        train.x += train.speed * dt * direction;
-        
-        // Check if arrived
-        if ((isPlayer && train.x >= train.targetX) ||
-            (!isPlayer && train.x <= train.targetX)) {
-            train.x = train.targetX;
+        // Check if arrived at target Y
+        if (train.y >= train.targetY) {
+            train.y = train.targetY;
             train.state = 'stopped';
             train.stopTime = 0;
         }
@@ -234,27 +234,26 @@ export class TrainSystem {
     }
     
     updateDeparting(train, dt) {
-        const isPlayer = train.team === CONFIG.TEAM_PLAYER;
-        const direction = isPlayer ? -1 : 1; // Reverse direction
+        // Train continues moving down (exits at bottom)
+        train.y += train.speed * dt;
         
-        train.x += train.speed * dt * direction;
-        
-        // Check if gone
-        if ((isPlayer && train.x < -250) ||
-            (!isPlayer && train.x > CONFIG.MAP_WIDTH + 250)) {
+        // Check if gone off bottom of map
+        if (train.y > CONFIG.MAP_HEIGHT + 250) {
             train.state = 'departed';
         }
     }
     
     unloadTroops(train) {
         const isPlayer = train.team === CONFIG.TEAM_PLAYER;
-        const spawnX = train.x + (isPlayer ? 30 : -30);
+        // Spawn units to the side of the tracks (toward the battlefield)
+        const spawnX = train.x + (isPlayer ? 50 : -50);
         
         // Spawn soldiers
         for (let i = 0; i < train.soldiers; i++) {
-            const offsetY = (i - train.soldiers / 2) * 25;
-            const x = spawnX + Math.random() * 20;
-            const y = train.y + offsetY + (Math.random() - 0.5) * 10;
+            const offsetX = (i % 3) * 20;
+            const offsetY = Math.floor(i / 3) * 20;
+            const x = spawnX + offsetX + (Math.random() - 0.5) * 10;
+            const y = train.y + offsetY - 30 + (Math.random() - 0.5) * 10;
             
             const soldier = this.game.unitManager.spawnUnit('soldier', x, y, train.team);
             
@@ -266,8 +265,9 @@ export class TrainSystem {
         
         // Spawn workers
         for (let i = 0; i < train.workers; i++) {
-            const offsetY = (i - train.workers / 2) * 30;
-            const x = spawnX + Math.random() * 20 + 20;
+            const offsetX = (i % 2) * 25;
+            const offsetY = Math.floor(i / 2) * 20 + train.soldiers * 8;
+            const x = spawnX + offsetX + (Math.random() - 0.5) * 10;
             const y = train.y + offsetY + (Math.random() - 0.5) * 10;
             
             this.game.unitManager.spawnUnit('worker', x, y, train.team);
@@ -276,14 +276,15 @@ export class TrainSystem {
         // Deliver shells to storage
         if (train.shells > 0) {
             if (isPlayer) {
-                // Player shells go to resource stockpile
+                // Player shells go to resource stockpile (with depot bonus)
+                const maxShells = this.game.buildingManager.getTotalShellStorage(CONFIG.TEAM_PLAYER);
                 this.game.resources.shells = Math.min(
-                    CONFIG.MAX_SHELLS,
+                    maxShells,
                     this.game.resources.shells + train.shells
                 );
                 
                 // Visual effect for shell delivery
-                this.game.addEffect('muzzle', train.x, train.y - 20, {
+                this.game.addEffect('muzzle', train.x + 30, train.y, {
                     size: 15,
                     duration: 0.3
                 });
@@ -310,11 +311,16 @@ export class TrainSystem {
         ctx.translate(train.x, train.y);
         
         const isPlayer = train.team === CONFIG.TEAM_PLAYER;
-        const flip = isPlayer ? 1 : -1;
         
+        // Rotate 90 degrees to face down the tracks (which run north-south)
+        // Player trains face south (down), enemy trains also face south
+        ctx.rotate(Math.PI / 2);
+        
+        // Flip for player/enemy side positioning
+        const flip = isPlayer ? 1 : -1;
         ctx.scale(flip, 1);
         
-        // Draw wagons (back to front)
+        // Draw wagons (back to front) - now arranged vertically
         for (let w = train.wagons - 1; w >= 0; w--) {
             this.renderWagon(ctx, -w * 55 - 60, 0, train.team);
         }

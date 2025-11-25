@@ -84,6 +84,60 @@ export class BuildingManager {
                 // Enemy artillery starts with ammo, player needs to supply
                 building.ammoCount = (team === CONFIG.TEAM_ENEMY) ? 5 : 0;
                 break;
+            case 'medical_tent':
+                building.health = 120;
+                building.maxHealth = 120;
+                building.radius = 30;
+                building.healRange = CONFIG.MEDICAL_TENT_HEAL_RANGE;
+                building.healRate = CONFIG.MEDICAL_TENT_HEAL_RATE;
+                building.buildTime = 50;
+                building.needsManning = false;
+                building.patientsHealing = []; // Units currently being healed
+                break;
+            case 'bunker':
+                building.health = 300;
+                building.maxHealth = 300;
+                building.radius = 35;
+                building.capacity = CONFIG.BUNKER_CAPACITY;
+                building.occupants = []; // Soldiers inside the bunker
+                building.protection = CONFIG.BUNKER_PROTECTION;
+                building.buildTime = 80;
+                building.needsManning = false;
+                building.attackCooldown = 0;
+                building.range = CONFIG.RIFLE_RANGE;
+                break;
+            case 'observation_post':
+                building.health = 80;
+                building.maxHealth = 80;
+                building.radius = 20;
+                building.visionRange = CONFIG.VISION_OBSERVATION_POST;
+                building.buildTime = 40;
+                building.needsManning = true;
+                break;
+            case 'supply_depot':
+                building.health = 150;
+                building.maxHealth = 150;
+                building.radius = 35;
+                building.shellStorage = 0; // Current shells stored
+                building.maxShellStorage = CONFIG.SUPPLY_DEPOT_SHELL_BONUS;
+                building.regenBonus = CONFIG.SUPPLY_DEPOT_REGEN_BONUS;
+                building.buildTime = 60;
+                building.needsManning = false;
+                break;
+            case 'mortar':
+                building.health = 100;
+                building.maxHealth = 100;
+                building.radius = 25;
+                building.range = CONFIG.MORTAR_RANGE;
+                building.damage = CONFIG.MORTAR_DAMAGE;
+                building.splashRadius = CONFIG.MORTAR_SPLASH;
+                building.fireRate = CONFIG.MORTAR_FIRE_RATE;
+                building.shellCost = CONFIG.MORTAR_SHELL_COST;
+                building.buildTime = 50;
+                building.needsManning = true;
+                building.ammoCount = (team === CONFIG.TEAM_ENEMY) ? 5 : 0;
+                building.maxAmmo = 10;
+                break;
         }
         
         this.buildings.push(building);
@@ -194,14 +248,40 @@ export class BuildingManager {
         return this.buildings.find(b => b.type === 'hq' && b.team === team);
     }
     
-    getUnmannedEmplacement(team) {
+    getUnmannedEmplacement(team, excludeTypes = []) {
         return this.buildings.find(b => 
             b.team === team && 
             !b.destroyed && 
             !b.isBlueprint &&
             b.needsManning && 
-            !b.assignedUnit
+            !b.assignedUnit &&
+            !excludeTypes.includes(b.type)
         );
+    }
+    
+    // Get mortars needing ammo resupply
+    getMortarsNeedingAmmo(team) {
+        return this.buildings.filter(b => 
+            b.team === team &&
+            b.type === 'mortar' &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.ammoCount < b.maxAmmo
+        ).sort((a, b) => a.ammoCount - b.ammoCount);
+    }
+    
+    // Find mortar needing resupply (respects claims)
+    findMortarNeedingResupply(team, workerId = null) {
+        const mortars = this.getMortarsNeedingAmmo(team);
+        for (const mortar of mortars) {
+            const claimedBy = this.claimedArtillery.get(mortar.id);
+            if (claimedBy && claimedBy !== workerId) continue;
+            
+            if (mortar.ammoCount < mortar.maxAmmo * 0.7) {
+                return mortar;
+            }
+        }
+        return null;
     }
     
     // Find artillery that needs ammo (for shell hauling)
@@ -397,8 +477,44 @@ export class BuildingManager {
             }
         }
         
+        // Artillery must be placed in player's side
         if (type === 'artillery') {
             if (x > CONFIG.MAP_WIDTH * 0.4) {
+                return false;
+            }
+        }
+        
+        // Mortar can be placed further forward but not too far
+        if (type === 'mortar') {
+            if (x > CONFIG.MAP_WIDTH * 0.5) {
+                return false;
+            }
+        }
+        
+        // Medical tent should be in safe area (behind lines)
+        if (type === 'medical_tent') {
+            if (x > CONFIG.MAP_WIDTH * 0.35) {
+                return false;
+            }
+        }
+        
+        // Supply depot must be near HQ area
+        if (type === 'supply_depot') {
+            if (x > CONFIG.MAP_WIDTH * 0.3) {
+                return false;
+            }
+        }
+        
+        // Bunker can be placed on front lines
+        if (type === 'bunker') {
+            if (x > CONFIG.MAP_WIDTH * 0.6) {
+                return false;
+            }
+        }
+        
+        // Observation post can be placed forward
+        if (type === 'observation_post') {
+            if (x > CONFIG.MAP_WIDTH * 0.55) {
                 return false;
             }
         }
@@ -474,6 +590,33 @@ export class BuildingManager {
                     this.updateWeapon(building, dt);
                 }
             }
+            
+            // Medical Tent - heal nearby wounded units
+            if (building.type === 'medical_tent') {
+                this.updateMedicalTent(building, dt);
+            }
+            
+            // Bunker - occupants can fire at enemies
+            if (building.type === 'bunker') {
+                this.updateBunker(building, dt);
+            }
+            
+            // Observation Post - needs manning
+            if (building.type === 'observation_post') {
+                if (building.assignedUnit && building.assignedUnit.state === 'dead') {
+                    building.assignedUnit = null;
+                }
+            }
+            
+            // Mortar - similar to artillery
+            if (building.type === 'mortar') {
+                if (building.assignedUnit && building.assignedUnit.state === 'dead') {
+                    building.assignedUnit = null;
+                }
+                if (building.assignedUnit) {
+                    this.updateMortar(building, dt);
+                }
+            }
         }
         
         // Update barbed wire effects
@@ -484,6 +627,244 @@ export class BuildingManager {
         
         // Update building-trench connections periodically
         this.updateBuildingConnections();
+    }
+    
+    // Medical Tent logic - heal friendly units that are close
+    updateMedicalTent(building, dt) {
+        // Find all friendly units (soldiers and workers) that are wounded and close to the tent
+        const nearbyWounded = this.game.unitManager.units.filter(u =>
+            u.team === building.team &&
+            u.state !== 'dead' &&
+            u.health < u.maxHealth // Any damage counts
+        );
+        
+        for (const unit of nearbyWounded) {
+            const dist = Math.sqrt((unit.x - building.x) ** 2 + (unit.y - building.y) ** 2);
+            
+            // Heal units that are close to the tent (within radius + some buffer)
+            if (dist < building.radius + 40) {
+                unit.health = Math.min(unit.maxHealth, unit.health + building.healRate * dt);
+                
+                // Healing effect (green cross particles)
+                if (Math.random() < dt * 2) {
+                    this.game.addEffect('muzzle', unit.x, unit.y - 10, {
+                        size: 6,
+                        duration: 0.3
+                    });
+                }
+                
+                // Clear seeking flag once healed enough
+                if (unit.health >= unit.maxHealth * 0.9) {
+                    unit.seekingMedicalTent = null;
+                }
+            }
+        }
+    }
+    
+    // Bunker logic - occupants fire at enemies
+    updateBunker(building, dt) {
+        // Clean up dead occupants
+        building.occupants = building.occupants.filter(u => u.state !== 'dead');
+        
+        if (building.occupants.length === 0) return;
+        
+        // Find enemies in range
+        const enemies = this.game.unitManager.getEnemiesInRange(
+            building.x, building.y, building.range, building.team
+        );
+        
+        if (enemies.length === 0) return;
+        
+        // Each occupant can fire
+        for (const occupant of building.occupants) {
+            if (occupant.attackCooldown > 0) {
+                occupant.attackCooldown -= dt;
+                continue;
+            }
+            
+            // Find closest enemy
+            let closest = null;
+            let closestDist = Infinity;
+            for (const enemy of enemies) {
+                const dist = Math.sqrt((enemy.x - building.x) ** 2 + (enemy.y - building.y) ** 2);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closest = enemy;
+                }
+            }
+            
+            if (closest && occupant.attackCooldown <= 0) {
+                // Fire from bunker (slightly reduced accuracy)
+                const angle = Math.atan2(closest.y - building.y, closest.x - building.x);
+                this.game.addEffect('muzzle',
+                    building.x + Math.cos(angle) * 25,
+                    building.y + Math.sin(angle) * 25,
+                    { size: 6, duration: 0.08 }
+                );
+                
+                const hitChance = 0.5 - (closestDist / building.range) * 0.2; // Lower accuracy from bunker
+                if (Math.random() < hitChance) {
+                    this.game.combatSystem.dealDamage(closest, occupant.attackDamage, occupant);
+                }
+                
+                occupant.attackCooldown = 1 / occupant.attackRate;
+            }
+        }
+    }
+    
+    // Mortar logic - fires at enemies with fractional shell cost
+    updateMortar(building, dt) {
+        const enemies = this.game.unitManager.getEnemiesInRange(
+            building.x, building.y, building.range, building.team
+        );
+        
+        if (enemies.length === 0) {
+            building.target = null;
+            return;
+        }
+        
+        // Find closest target
+        let target = null;
+        let minDist = Infinity;
+        for (const enemy of enemies) {
+            const dist = Math.sqrt((enemy.x - building.x) ** 2 + (enemy.y - building.y) ** 2);
+            if (dist < minDist) {
+                minDist = dist;
+                target = enemy;
+            }
+        }
+        
+        building.target = target;
+        
+        if (target) {
+            const targetAngle = Math.atan2(target.y - building.y, target.x - building.x);
+            const angleDiff = targetAngle - building.angle;
+            building.angle += angleDiff * 5 * dt;
+        }
+        
+        if (target && building.attackCooldown <= 0) {
+            // Check ammo - uses fractional shells
+            if (building.ammoCount >= building.shellCost) {
+                building.ammoCount -= building.shellCost;
+                this.fireMortar(building, target);
+                building.attackCooldown = 1 / building.fireRate;
+            }
+        }
+    }
+    
+    fireMortar(building, target) {
+        // Mortar has less spread than artillery
+        const dist = Math.sqrt((target.x - building.x) ** 2 + (target.y - building.y) ** 2);
+        const baseSpread = 30;
+        const distanceSpread = (dist / CONFIG.MORTAR_RANGE) * 40;
+        const totalSpread = baseSpread + distanceSpread;
+        
+        const spreadAngle = Math.random() * Math.PI * 2;
+        const spreadDist = Math.random() * totalSpread;
+        
+        const targetX = target.x + Math.cos(spreadAngle) * spreadDist;
+        const targetY = target.y + Math.sin(spreadAngle) * spreadDist;
+        
+        // Muzzle flash
+        this.game.addEffect('muzzle',
+            building.x,
+            building.y - 10,
+            { size: 20, duration: 0.15 }
+        );
+        
+        // Shorter flight time than artillery
+        const flightTime = 400 + (dist / CONFIG.MORTAR_RANGE) * 300;
+        
+        setTimeout(() => {
+            this.mortarExplosion(targetX, targetY, building);
+        }, flightTime);
+    }
+    
+    mortarExplosion(x, y, source) {
+        this.game.addEffect('explosion', x, y, {
+            size: 25,
+            duration: 0.5
+        });
+        
+        const splashRadius = source.splashRadius || 35;
+        const allUnits = this.game.unitManager.units;
+        
+        for (const unit of allUnits) {
+            const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
+            if (dist < splashRadius) {
+                const falloff = 1 - (dist / splashRadius);
+                const damage = source.damage * falloff;
+                this.game.combatSystem.dealDamage(unit, damage, source);
+                unit.suppression = Math.min(100, unit.suppression + 60);
+            }
+        }
+    }
+    
+    // Get Supply Depot bonus for supply regeneration
+    getSupplyRegenBonus(team) {
+        let bonus = 0;
+        for (const building of this.buildings) {
+            if (building.type === 'supply_depot' &&
+                building.team === team &&
+                !building.destroyed &&
+                !building.isBlueprint) {
+                bonus += building.regenBonus;
+            }
+        }
+        return bonus;
+    }
+    
+    // Get total shell storage from Supply Depots
+    getTotalShellStorage(team) {
+        let storage = CONFIG.MAX_SHELLS;
+        for (const building of this.buildings) {
+            if (building.type === 'supply_depot' &&
+                building.team === team &&
+                !building.destroyed &&
+                !building.isBlueprint) {
+                storage += building.maxShellStorage;
+            }
+        }
+        return storage;
+    }
+    
+    // Enter a bunker
+    enterBunker(unit, bunker) {
+        if (bunker.occupants.length >= bunker.capacity) return false;
+        if (bunker.destroyed || bunker.isBlueprint) return false;
+        
+        bunker.occupants.push(unit);
+        unit.inBunker = bunker;
+        unit.visible = false; // Hide the unit visually
+        return true;
+    }
+    
+    // Exit a bunker
+    exitBunker(unit) {
+        if (!unit.inBunker) return;
+        
+        const bunker = unit.inBunker;
+        const idx = bunker.occupants.indexOf(unit);
+        if (idx !== -1) {
+            bunker.occupants.splice(idx, 1);
+        }
+        
+        // Place unit near bunker exit
+        unit.x = bunker.x + (Math.random() - 0.5) * 40;
+        unit.y = bunker.y + bunker.radius + 10;
+        unit.inBunker = null;
+        unit.visible = true;
+    }
+    
+    // Find bunker with space
+    findAvailableBunker(team) {
+        return this.buildings.find(b =>
+            b.type === 'bunker' &&
+            b.team === team &&
+            !b.destroyed &&
+            !b.isBlueprint &&
+            b.occupants.length < b.capacity
+        );
     }
     
     updateBuildingConnections() {
@@ -698,30 +1079,59 @@ export class BuildingManager {
         
         if (building.health <= 0) {
             building.destroyed = true;
+            
+            // Clear assigned unit
             if (building.assignedUnit) {
                 building.assignedUnit.mannedBuilding = null;
                 building.assignedUnit = null;
             }
+            
+            // Eject all bunker occupants (they take damage from explosion)
+            if (building.type === 'bunker' && building.occupants) {
+                for (const occupant of [...building.occupants]) {
+                    this.exitBunker(occupant);
+                    // Occupants take damage when bunker is destroyed
+                    if (occupant.state !== 'dead') {
+                        this.game.combatSystem.dealDamage(occupant, 30, building);
+                    }
+                }
+                building.occupants = [];
+            }
+            
             this.game.addEffect('explosion', building.x, building.y, {
-                size: building.type === 'hq' ? 80 : 40,
+                size: building.type === 'hq' ? 80 : (building.type === 'bunker' ? 60 : 40),
                 duration: 0.8
             });
         }
     }
     
-    render(ctx) {
+    render(ctx, renderer = null) {
         // Render building-trench connections FIRST (underneath everything)
         this.renderBuildingConnections(ctx);
         
         // Render barbed wire lines
         for (const wire of this.barbedWireLines) {
             if (wire.destroyed) continue;
+            // Hide enemy wire in fog
+            if (renderer && wire.team === CONFIG.TEAM_ENEMY) {
+                const midX = wire.points.length > 0 ? wire.points[0].x : 0;
+                const midY = wire.points.length > 0 ? wire.points[0].y : 0;
+                if (!renderer.isPositionVisible(midX, midY)) continue;
+            }
             this.renderBarbedWireLine(ctx, wire);
         }
         
         // Render buildings - sort by y for proper overlap
         const sortedBuildings = [...this.buildings].sort((a, b) => a.y - b.y);
         for (const building of sortedBuildings) {
+            // Hide enemy buildings in fog of war (except HQ which is always visible)
+            if (renderer && building.team === CONFIG.TEAM_ENEMY && building.type !== 'hq') {
+                if (!renderer.isPositionVisible(building.x, building.y) && 
+                    !renderer.isPositionExplored(building.x, building.y)) {
+                    continue; // Don't render unexplored enemy buildings
+                }
+            }
+            
             if (building.destroyed) {
                 this.renderDestroyed(ctx, building);
                 continue;
@@ -736,6 +1146,21 @@ export class BuildingManager {
                     break;
                 case 'artillery':
                     this.renderArtillery(ctx, building);
+                    break;
+                case 'medical_tent':
+                    this.renderMedicalTent(ctx, building);
+                    break;
+                case 'bunker':
+                    this.renderBunker(ctx, building);
+                    break;
+                case 'observation_post':
+                    this.renderObservationPost(ctx, building);
+                    break;
+                case 'supply_depot':
+                    this.renderSupplyDepot(ctx, building);
+                    break;
+                case 'mortar':
+                    this.renderMortar(ctx, building);
                     break;
             }
         }
@@ -1578,5 +2003,521 @@ export class BuildingManager {
             ctx.font = 'bold 9px sans-serif';
             ctx.fillText('LOW AMMO', 0, barY + barHeight + 22);
         }
+    }
+    
+    // Medical Tent - WWI field hospital tent
+    renderMedicalTent(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 0.5;
+        }
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(4, 25, 40, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Tent base/floor
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-35, 5, 70, 20);
+        
+        // Main tent canvas - peaked shape
+        ctx.fillStyle = '#8a8570'; // Canvas color
+        ctx.beginPath();
+        ctx.moveTo(-40, 15);
+        ctx.lineTo(-35, -30);
+        ctx.lineTo(0, -45);
+        ctx.lineTo(35, -30);
+        ctx.lineTo(40, 15);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Tent side shading
+        ctx.fillStyle = '#6a6550';
+        ctx.beginPath();
+        ctx.moveTo(-40, 15);
+        ctx.lineTo(-35, -30);
+        ctx.lineTo(0, -45);
+        ctx.lineTo(0, 15);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Tent entrance
+        ctx.fillStyle = '#2a2a20';
+        ctx.beginPath();
+        ctx.moveTo(-15, 15);
+        ctx.lineTo(-10, -20);
+        ctx.lineTo(10, -20);
+        ctx.lineTo(15, 15);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Red cross symbol
+        ctx.fillStyle = '#aa2020';
+        ctx.fillRect(-8, -35, 16, 4);
+        ctx.fillRect(-2, -41, 4, 16);
+        
+        // White background for cross
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(0, -33, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#cc3030';
+        ctx.fillRect(-7, -36, 14, 4);
+        ctx.fillRect(-2, -41, 4, 14);
+        
+        // Tent poles
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.fillRect(-2, -45, 4, 60);
+        
+        // Guy ropes
+        ctx.strokeStyle = '#5a5040';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-35, -30);
+        ctx.lineTo(-50, 20);
+        ctx.moveTo(35, -30);
+        ctx.lineTo(50, 20);
+        ctx.stroke();
+        
+        // Healing range indicator (subtle)
+        if (!building.isBlueprint) {
+            ctx.globalAlpha = 0.1;
+            ctx.strokeStyle = '#44ff44';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([5, 5]);
+            ctx.beginPath();
+            ctx.arc(0, 0, building.healRange, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
+        
+        // Build progress
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 1;
+            const barWidth = 45;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 32, barWidth + 2, 6);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-barWidth/2, 33, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 33, barWidth * building.buildProgress, 4);
+        }
+        
+        this.renderHealthBar(ctx, building, 50);
+        
+        ctx.restore();
+    }
+    
+    // Bunker - WWI concrete pillbox
+    renderBunker(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 0.5;
+        }
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(5, 28, 45, 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Main bunker structure - concrete
+        ctx.fillStyle = '#5a5a52';
+        ctx.beginPath();
+        ctx.moveTo(-40, 20);
+        ctx.lineTo(-35, -25);
+        ctx.lineTo(35, -25);
+        ctx.lineTo(40, 20);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Darker concrete texture
+        ctx.fillStyle = '#4a4a42';
+        ctx.fillRect(-35, -20, 70, 35);
+        
+        // Top/roof
+        ctx.fillStyle = '#6a6a62';
+        ctx.fillRect(-38, -28, 76, 8);
+        
+        // Firing slits
+        ctx.fillStyle = '#1a1a15';
+        for (let i = 0; i < 4; i++) {
+            const slitX = -25 + i * 17;
+            ctx.fillRect(slitX, -10, 12, 4);
+        }
+        
+        // Entrance (back)
+        ctx.fillStyle = '#2a2a25';
+        ctx.fillRect(-12, 10, 24, 15);
+        
+        // Sandbags around base
+        for (let i = 0; i < 8; i++) {
+            const angle = (i / 8) * Math.PI * 2;
+            const bx = Math.cos(angle) * 38;
+            const by = Math.sin(angle) * 20 + 15;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 1, 8, 5, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 7, 4, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Occupant count display
+        if (!building.isBlueprint) {
+            ctx.fillStyle = '#888';
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`${building.occupants.length}/${building.capacity}`, 0, 38);
+        }
+        
+        // Build progress
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 1;
+            const barWidth = 50;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 35, barWidth + 2, 6);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-barWidth/2, 36, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 36, barWidth * building.buildProgress, 4);
+        }
+        
+        this.renderHealthBar(ctx, building, 55);
+        
+        ctx.restore();
+    }
+    
+    // Observation Post - elevated wooden platform
+    renderObservationPost(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 0.5;
+        }
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(3, 25, 25, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Support legs (4 posts)
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.fillRect(-18, -30, 5, 55);
+        ctx.fillRect(13, -30, 5, 55);
+        ctx.fillRect(-18, -15, 5, 40);
+        ctx.fillRect(13, -15, 5, 40);
+        
+        // Cross bracing
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(-15, 0);
+        ctx.lineTo(15, 15);
+        ctx.moveTo(15, 0);
+        ctx.lineTo(-15, 15);
+        ctx.stroke();
+        
+        // Platform
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-22, -35, 44, 8);
+        
+        // Platform planks
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 6; i++) {
+            ctx.beginPath();
+            ctx.moveTo(-20 + i * 8, -35);
+            ctx.lineTo(-20 + i * 8, -27);
+            ctx.stroke();
+        }
+        
+        // Railing
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(-20, -50, 40, 18);
+        
+        // Roof (small cover)
+        ctx.fillStyle = '#4a4030';
+        ctx.beginPath();
+        ctx.moveTo(-25, -50);
+        ctx.lineTo(0, -62);
+        ctx.lineTo(25, -50);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Vision range indicator (subtle)
+        if (!building.isBlueprint && building.assignedUnit) {
+            ctx.globalAlpha = 0.08;
+            ctx.strokeStyle = '#4488ff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
+            ctx.beginPath();
+            ctx.arc(0, 0, building.visionRange, 0, Math.PI * 2);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
+        }
+        
+        // Build progress or crew needed
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 1;
+            const barWidth = 35;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 30, barWidth + 2, 6);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-barWidth/2, 31, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 31, barWidth * building.buildProgress, 4);
+        } else if (!building.assignedUnit && building.needsManning) {
+            const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+            ctx.fillStyle = `rgba(170, 68, 68, ${pulse})`;
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('NO CREW', 0, 35);
+        }
+        
+        this.renderHealthBar(ctx, building, 35);
+        
+        ctx.restore();
+    }
+    
+    // Supply Depot - WWI storage shed
+    renderSupplyDepot(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 0.5;
+        }
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(5, 30, 45, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Base/floor
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-40, 10, 80, 20);
+        
+        // Main shed structure
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-38, -25, 76, 40);
+        
+        // Darker walls
+        ctx.fillStyle = '#3a3020';
+        ctx.fillRect(-38, -25, 20, 40);
+        
+        // Horizontal planks
+        ctx.strokeStyle = '#5a5040';
+        ctx.lineWidth = 1;
+        for (let y = -20; y < 15; y += 6) {
+            ctx.beginPath();
+            ctx.moveTo(-36, y);
+            ctx.lineTo(36, y);
+            ctx.stroke();
+        }
+        
+        // Roof
+        ctx.fillStyle = '#3a3025';
+        ctx.beginPath();
+        ctx.moveTo(-42, -25);
+        ctx.lineTo(0, -45);
+        ctx.lineTo(42, -25);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Roof highlight
+        ctx.fillStyle = '#4a4035';
+        ctx.beginPath();
+        ctx.moveTo(-38, -27);
+        ctx.lineTo(0, -42);
+        ctx.lineTo(0, -25);
+        ctx.lineTo(-38, -25);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Door
+        ctx.fillStyle = '#2a2015';
+        ctx.fillRect(-12, -5, 24, 20);
+        ctx.fillStyle = '#3a3025';
+        ctx.fillRect(-10, -3, 20, 16);
+        
+        // Crates outside
+        this.drawCrate(ctx, -30, 5, 12);
+        this.drawCrate(ctx, 25, 8, 10);
+        this.drawCrate(ctx, 30, 0, 8);
+        
+        // Shell boxes
+        ctx.fillStyle = '#4a4a3a';
+        ctx.fillRect(-35, 15, 15, 10);
+        ctx.fillRect(20, 15, 15, 10);
+        ctx.fillStyle = '#3a3a2a';
+        ctx.fillRect(-34, 16, 13, 3);
+        ctx.fillRect(21, 16, 13, 3);
+        
+        // Storage indicator
+        if (!building.isBlueprint) {
+            ctx.fillStyle = '#888';
+            ctx.font = '9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(`+${Math.floor(building.regenBonus * 100)}% Supply`, 0, 42);
+        }
+        
+        // Build progress
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 1;
+            const barWidth = 50;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 38, barWidth + 2, 6);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-barWidth/2, 39, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 39, barWidth * building.buildProgress, 4);
+        }
+        
+        this.renderHealthBar(ctx, building, 50);
+        
+        ctx.restore();
+    }
+    
+    drawCrate(ctx, x, y, size) {
+        ctx.fillStyle = '#5a4a30';
+        ctx.fillRect(x, y, size, size * 0.8);
+        ctx.strokeStyle = '#4a3a20';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, size, size * 0.8);
+        // Cross straps
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + size, y + size * 0.8);
+        ctx.moveTo(x + size, y);
+        ctx.lineTo(x, y + size * 0.8);
+        ctx.stroke();
+    }
+    
+    // Mortar - sandbag pit with mortar tube
+    renderMortar(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 0.5;
+        }
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.ellipse(3, 18, 30, 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Sandbag ring
+        for (let i = 0; i < 10; i++) {
+            const angle = (i / 10) * Math.PI * 2;
+            const bx = Math.cos(angle) * 22;
+            const by = Math.sin(angle) * 18;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 2, 9, 5, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 8, 4.5, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Inner pit
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 15, 12, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Duckboard floor
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-10, -6, 20, 12);
+        
+        // Mortar tube (if not blueprint)
+        if (!building.isBlueprint) {
+            ctx.save();
+            ctx.rotate(building.angle || 0);
+            
+            // Base plate
+            ctx.fillStyle = '#4a4a4a';
+            ctx.fillRect(-8, -8, 16, 16);
+            
+            // Bipod legs
+            ctx.strokeStyle = '#3a3a3a';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.lineTo(-15, 10);
+            ctx.moveTo(0, 0);
+            ctx.lineTo(15, 10);
+            ctx.stroke();
+            
+            // Mortar tube
+            ctx.fillStyle = '#3a3a3a';
+            ctx.beginPath();
+            ctx.moveTo(-4, 0);
+            ctx.lineTo(-3, -30);
+            ctx.lineTo(3, -30);
+            ctx.lineTo(4, 0);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Tube opening
+            ctx.fillStyle = '#1a1a1a';
+            ctx.beginPath();
+            ctx.ellipse(0, -30, 3, 2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.restore();
+        }
+        
+        // Ammo boxes nearby
+        ctx.fillStyle = '#4a4030';
+        ctx.fillRect(-25, 8, 12, 8);
+        ctx.fillRect(15, 10, 10, 7);
+        
+        // Build progress or crew status
+        if (building.isBlueprint) {
+            ctx.globalAlpha = 1;
+            const barWidth = 35;
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(-barWidth/2 - 1, 28, barWidth + 2, 6);
+            ctx.fillStyle = '#333';
+            ctx.fillRect(-barWidth/2, 29, barWidth, 4);
+            ctx.fillStyle = '#44aa44';
+            ctx.fillRect(-barWidth/2, 29, barWidth * building.buildProgress, 4);
+        } else if (!building.assignedUnit && building.needsManning) {
+            const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
+            ctx.fillStyle = `rgba(170, 68, 68, ${pulse})`;
+            ctx.font = 'bold 10px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('NO CREW', 0, 35);
+        } else if (!building.isBlueprint) {
+            // Show ammo
+            this.renderAmmoBar(ctx, building, 35);
+        }
+        
+        this.renderHealthBar(ctx, building, 30);
+        
+        ctx.restore();
     }
 }

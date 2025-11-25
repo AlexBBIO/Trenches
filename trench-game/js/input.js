@@ -108,10 +108,13 @@ export class Input {
             this.addWirePoint();
         }
         
-        // Building preview
-        if (this.game.currentTool === 'machinegun' || 
-            this.game.currentTool === 'artillery' ||
-            this.game.currentTool === 'barbed') {
+        // Building preview for all building types
+        const buildingTools = [
+            'machinegun', 'artillery', 'barbed',
+            'medical_tent', 'bunker', 'observation_post', 
+            'supply_depot', 'mortar'
+        ];
+        if (buildingTools.includes(this.game.currentTool)) {
             this.buildPreview = {
                 type: this.game.currentTool,
                 x: this.worldX,
@@ -150,6 +153,29 @@ export class Input {
                 this.game.ui.selectAllOfType('worker');
             }
         }
+        
+        // Tool hotkeys (1-0)
+        const toolHotkeys = {
+            '1': 'select',
+            'q': 'select',
+            '2': 'trench',
+            't': 'trench',
+            '3': 'machinegun',
+            'm': 'machinegun',
+            '4': 'artillery',
+            '5': 'barbed',
+            'b': 'barbed',
+            '6': 'medical_tent',
+            '7': 'bunker',
+            '8': 'observation_post',
+            '9': 'supply_depot',
+            '0': 'mortar'
+        };
+        
+        if (toolHotkeys[key] && !e.shiftKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault();
+            this.game.setTool(toolHotkeys[key]);
+        }
     }
     
     onKeyUp(e) {
@@ -177,6 +203,11 @@ export class Input {
                 break;
             case 'machinegun':
             case 'artillery':
+            case 'medical_tent':
+            case 'bunker':
+            case 'observation_post':
+            case 'supply_depot':
+            case 'mortar':
                 this.placeBuilding(tool);
                 break;
             case 'barbed':
@@ -216,17 +247,17 @@ export class Input {
             return;
         }
         
-        // Check if clicking on a trench - order soldiers to man it
+        // Check if clicking on a trench - order units to man it
         const trench = this.game.trenchSystem.isInTrench(this.worldX, this.worldY, CONFIG.TEAM_PLAYER);
         
         if (trench) {
-            // Order soldiers to man the trench
-            const soldiers = this.game.selectedUnits.filter(u => u.type === 'soldier');
-            soldiers.forEach((soldier, i) => {
+            // Order soldiers and workers to the trench
+            const units = this.game.selectedUnits.filter(u => u.type === 'soldier' || u.type === 'worker');
+            units.forEach((unit, i) => {
                 // Find position along trench
-                const trenchPos = this.game.trenchSystem.getPositionAlongTrench(trench, i, soldiers.length);
+                const trenchPos = this.game.trenchSystem.getPositionAlongTrench(trench, i, units.length);
                 if (trenchPos) {
-                    soldier.orderToTrench(trenchPos.x, trenchPos.y, trench);
+                    unit.orderToTrench(trenchPos.x, trenchPos.y, trench);
                 }
             });
             return;
@@ -344,7 +375,12 @@ export class Input {
     placeBuilding(type) {
         const costs = {
             'machinegun': CONFIG.COST_MACHINEGUN,
-            'artillery': CONFIG.COST_ARTILLERY
+            'artillery': CONFIG.COST_ARTILLERY,
+            'medical_tent': CONFIG.COST_MEDICAL_TENT,
+            'bunker': CONFIG.COST_BUNKER,
+            'observation_post': CONFIG.COST_OBSERVATION_POST,
+            'supply_depot': CONFIG.COST_SUPPLY_DEPOT,
+            'mortar': CONFIG.COST_MORTAR
         };
         
         const cost = costs[type];

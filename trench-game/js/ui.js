@@ -272,10 +272,13 @@ export class UI {
             this.shellsDisplay.textContent = this.game.resources.shells;
         }
         
-        // Slowly regenerate supplies
+        // Slowly regenerate supplies (with depot bonus)
+        const depotBonus = this.game.buildingManager.getSupplyRegenBonus(CONFIG.TEAM_PLAYER);
+        const baseRegen = 2;
+        const actualRegen = baseRegen * (1 + depotBonus);
         this.game.resources.supplies = Math.min(
             200, 
-            this.game.resources.supplies + this.game.deltaTime * 2
+            this.game.resources.supplies + this.game.deltaTime * actualRegen
         );
         
         // Update train order status
@@ -307,7 +310,12 @@ export class UI {
             'trench': 'DIG TRENCH',
             'machinegun': 'MACHINE GUN',
             'artillery': 'ARTILLERY',
-            'barbed': 'BARBED WIRE'
+            'barbed': 'BARBED WIRE',
+            'medical_tent': 'MEDICAL TENT',
+            'bunker': 'BUNKER',
+            'observation_post': 'OBSERVATION POST',
+            'supply_depot': 'SUPPLY DEPOT',
+            'mortar': 'MORTAR PIT'
         };
         
         const toolNameEl = document.getElementById('tool-name');

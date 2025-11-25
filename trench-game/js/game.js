@@ -43,6 +43,37 @@ export const CONFIG = {
     COST_MACHINEGUN: 25,
     COST_ARTILLERY: 50,
     COST_BARBED_WIRE: 10,
+    COST_MEDICAL_TENT: 30,
+    COST_BUNKER: 40,
+    COST_OBSERVATION_POST: 20,
+    COST_SUPPLY_DEPOT: 35,
+    COST_MORTAR: 30,
+    
+    // Vision ranges (for Fog of War)
+    VISION_SOLDIER: 150,
+    VISION_WORKER: 100,
+    VISION_BUILDING: 200,
+    VISION_HQ: 300,
+    VISION_OBSERVATION_POST: 400,
+    
+    // Medical Tent
+    MEDICAL_TENT_HEAL_RANGE: 150,
+    MEDICAL_TENT_HEAL_RATE: 5,
+    
+    // Bunker
+    BUNKER_CAPACITY: 4,
+    BUNKER_PROTECTION: 0.8,
+    
+    // Supply Depot
+    SUPPLY_DEPOT_SHELL_BONUS: 50,
+    SUPPLY_DEPOT_REGEN_BONUS: 0.5,
+    
+    // Mortar
+    MORTAR_RANGE: 600,
+    MORTAR_DAMAGE: 40,
+    MORTAR_SPLASH: 35,
+    MORTAR_FIRE_RATE: 0.5,
+    MORTAR_SHELL_COST: 0.25,
     
     // Colors - WWI Cannon Fodder style palette
     COLORS: {
