@@ -2,6 +2,31 @@
 import { GameState, CONFIG } from './game.js';
 import { TRAIN_COSTS } from './trains.js';
 
+// Building costs for display
+export const BUILDING_COSTS = {
+    'machinegun': 25,
+    'artillery': 50,
+    'barbed': 10,
+    'medical_tent': 30,
+    'bunker': 40,
+    'observation_post': 20,
+    'supply_depot': 35,
+    'mortar': 30
+};
+
+// Building display info
+export const BUILDING_INFO = {
+    'machinegun': { icon: '🔫', name: 'MACHINE GUN' },
+    'artillery': { icon: '💥', name: 'ARTILLERY' },
+    'barbed': { icon: '🪤', name: 'BARBED WIRE' },
+    'medical_tent': { icon: '🏥', name: 'MEDICAL TENT' },
+    'bunker': { icon: '🏰', name: 'BUNKER' },
+    'observation_post': { icon: '🗼', name: 'OBSERVATION POST' },
+    'supply_depot': { icon: '📦', name: 'SUPPLY DEPOT' },
+    'mortar': { icon: '🎆', name: 'MORTAR PIT' },
+    'hq': { icon: '🏛️', name: 'HEADQUARTERS' }
+};
+
 export class UI {
     constructor(game) {
         this.game = game;
@@ -20,6 +45,18 @@ export class UI {
         
         this.toolbar = document.getElementById('toolbar');
         this.toolButtons = document.querySelectorAll('.tool-btn');
+        
+        // Building info panel elements
+        this.buildingInfo = document.getElementById('building-info');
+        this.buildingIcon = document.getElementById('building-icon');
+        this.buildingName = document.getElementById('building-name');
+        this.buildingHealthFill = document.getElementById('building-health-fill');
+        this.buildingHealthText = document.getElementById('building-health-text');
+        this.buildingStatus = document.getElementById('building-status');
+        this.buildingActions = document.getElementById('building-actions');
+        
+        // Currently selected building
+        this.selectedBuilding = null;
         
         // Train order elements
         this.orderSoldiers = document.getElementById('order-soldiers');
@@ -288,6 +325,16 @@ export class UI {
         if (!this.game.trainSystem.pendingOrder) {
             this.updateOrderCost();
         }
+        
+        // Update building info panel if a building is selected
+        if (this.selectedBuilding) {
+            // Check if building still exists and isn't destroyed
+            if (this.selectedBuilding.destroyed) {
+                this.deselectBuilding();
+            } else {
+                this.updateBuildingInfo();
+            }
+        }
     }
     
     updateToolbar(activeTool) {
@@ -304,7 +351,7 @@ export class UI {
             }
         });
         
-        // Show tool name popup
+        // Show tool name popup with cost
         const toolNames = {
             'select': 'SELECT',
             'trench': 'DIG TRENCH',
@@ -319,7 +366,15 @@ export class UI {
         };
         
         const toolNameEl = document.getElementById('tool-name');
-        toolNameEl.textContent = toolNames[activeTool] || activeTool.toUpperCase();
+        let displayText = toolNames[activeTool] || activeTool.toUpperCase();
+        
+        // Add cost if it's a building
+        const cost = BUILDING_COSTS[activeTool];
+        if (cost) {
+            displayText += ` (${cost}⚙️)`;
+        }
+        
+        toolNameEl.textContent = displayText;
         toolNameEl.classList.remove('hidden');
         
         // Reset animation
@@ -374,6 +429,176 @@ export class UI {
         
         // Switch to select tool
         this.game.setTool('select');
+    }
+    
+    // Select a building and show its info panel
+    selectBuilding(building) {
+        // Clear unit selection when selecting a building
+        this.game.clearSelection();
+        
+        this.selectedBuilding = building;
+        building.selected = true;
+        
+        this.updateBuildingInfo();
+        this.buildingInfo.classList.remove('hidden');
+        this.selectionInfo.classList.add('hidden');
+    }
+    
+    // Deselect the current building
+    deselectBuilding() {
+        if (this.selectedBuilding) {
+            this.selectedBuilding.selected = false;
+            this.selectedBuilding = null;
+        }
+        this.buildingInfo.classList.add('hidden');
+    }
+    
+    // Update building info panel
+    updateBuildingInfo() {
+        const building = this.selectedBuilding;
+        if (!building) return;
+        
+        // Get building display info
+        const info = BUILDING_INFO[building.type] || { icon: '🏗️', name: building.type.toUpperCase() };
+        
+        this.buildingIcon.textContent = info.icon;
+        this.buildingName.textContent = info.name;
+        
+        // Update health bar
+        const healthPercent = (building.health / building.maxHealth) * 100;
+        this.buildingHealthFill.style.width = `${healthPercent}%`;
+        this.buildingHealthText.textContent = `${Math.ceil(building.health)}/${building.maxHealth}`;
+        
+        // Update health bar color based on health
+        if (healthPercent > 60) {
+            this.buildingHealthFill.style.background = 'linear-gradient(180deg, #6a9a4a 0%, #4a7a2a 100%)';
+        } else if (healthPercent > 30) {
+            this.buildingHealthFill.style.background = 'linear-gradient(180deg, #9a8a4a 0%, #7a6a2a 100%)';
+        } else {
+            this.buildingHealthFill.style.background = 'linear-gradient(180deg, #9a4a4a 0%, #7a2a2a 100%)';
+        }
+        
+        // Build status info
+        let statusHTML = '';
+        
+        switch (building.type) {
+            case 'bunker':
+                statusHTML += `<div class="status-row"><span class="status-label">Occupants</span><span class="status-value">${building.occupants.length}/${building.capacity}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Protection</span><span class="status-value">${Math.round(building.protection * 100)}%</span></div>`;
+                break;
+                
+            case 'medical_tent':
+                const nearbyWounded = this.game.unitManager.units.filter(u =>
+                    u.team === building.team &&
+                    u.state !== 'dead' &&
+                    u.health < u.maxHealth &&
+                    Math.sqrt((u.x - building.x) ** 2 + (u.y - building.y) ** 2) <= building.healRange
+                ).length;
+                statusHTML += `<div class="status-row"><span class="status-label">Heal Rate</span><span class="status-value">${building.healRate} HP/s</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Wounded Nearby</span><span class="status-value">${nearbyWounded}</span></div>`;
+                break;
+                
+            case 'observation_post':
+                const isManned = building.assignedUnit && building.assignedUnit.state !== 'dead';
+                statusHTML += `<div class="status-row"><span class="status-label">Status</span><span class="status-value">${isManned ? '✓ Manned' : '✗ Unmanned'}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Vision Range</span><span class="status-value">${building.visionRange}px</span></div>`;
+                break;
+                
+            case 'supply_depot':
+                statusHTML += `<div class="status-row"><span class="status-label">Shell Storage</span><span class="status-value">+${building.shellStorage}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Supply Bonus</span><span class="status-value">+${Math.round(building.supplyBonus * 100)}%</span></div>`;
+                break;
+                
+            case 'mortar':
+                const mortarManned = building.assignedUnit && building.assignedUnit.state !== 'dead';
+                statusHTML += `<div class="status-row"><span class="status-label">Status</span><span class="status-value">${mortarManned ? '✓ Manned' : '✗ Unmanned'}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Range</span><span class="status-value">${building.range}px</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Ammo/Shot</span><span class="status-value">${building.ammoPerShot} shells</span></div>`;
+                break;
+                
+            case 'artillery':
+                const artilleryManned = building.assignedUnit && building.assignedUnit.state !== 'dead';
+                statusHTML += `<div class="status-row"><span class="status-label">Status</span><span class="status-value">${artilleryManned ? '✓ Manned' : '✗ Unmanned'}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Range</span><span class="status-value">${building.range}px</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Ammo</span><span class="status-value">${this.game.resources.shells} shells</span></div>`;
+                break;
+                
+            case 'machinegun':
+                const mgManned = building.assignedUnit && building.assignedUnit.state !== 'dead';
+                statusHTML += `<div class="status-row"><span class="status-label">Status</span><span class="status-value">${mgManned ? '✓ Manned' : '✗ Unmanned'}</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Range</span><span class="status-value">${building.range}px</span></div>`;
+                statusHTML += `<div class="status-row"><span class="status-label">Fire Rate</span><span class="status-value">${building.fireRate}/s</span></div>`;
+                break;
+                
+            case 'hq':
+                statusHTML += `<div class="status-row"><span class="status-label">Team</span><span class="status-value">${building.team === CONFIG.TEAM_PLAYER ? 'Friendly' : 'Enemy'}</span></div>`;
+                break;
+        }
+        
+        this.buildingStatus.innerHTML = statusHTML;
+        
+        // Build action buttons
+        let actionsHTML = '';
+        
+        // Priority repair button (for damaged buildings)
+        if (building.health < building.maxHealth && !building.priorityRepair) {
+            actionsHTML += `<button class="building-action-btn priority" data-action="priority-repair">🔧 Priority Repair</button>`;
+        } else if (building.priorityRepair) {
+            actionsHTML += `<button class="building-action-btn" data-action="cancel-priority">✓ Priority Set</button>`;
+        }
+        
+        // Building-specific actions
+        if (building.type === 'bunker' && building.occupants.length > 0) {
+            actionsHTML += `<button class="building-action-btn" data-action="empty-bunker">🚪 Empty Bunker</button>`;
+        }
+        
+        // Demolish button (not for HQ)
+        if (building.type !== 'hq' && building.team === CONFIG.TEAM_PLAYER) {
+            actionsHTML += `<button class="building-action-btn danger" data-action="demolish">💣 Demolish</button>`;
+        }
+        
+        this.buildingActions.innerHTML = actionsHTML;
+        
+        // Attach event listeners to action buttons
+        this.buildingActions.querySelectorAll('.building-action-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => this.handleBuildingAction(e.target.dataset.action));
+        });
+    }
+    
+    // Handle building action button clicks
+    handleBuildingAction(action) {
+        const building = this.selectedBuilding;
+        if (!building) return;
+        
+        switch (action) {
+            case 'priority-repair':
+                building.priorityRepair = true;
+                this.updateBuildingInfo();
+                break;
+                
+            case 'cancel-priority':
+                building.priorityRepair = false;
+                this.updateBuildingInfo();
+                break;
+                
+            case 'empty-bunker':
+                if (building.type === 'bunker') {
+                    // Eject all occupants
+                    const occupants = [...building.occupants];
+                    for (const occupant of occupants) {
+                        this.game.buildingManager.exitBunker(occupant);
+                    }
+                    this.updateBuildingInfo();
+                }
+                break;
+                
+            case 'demolish':
+                // Confirm demolition
+                building.health = 0;
+                this.game.buildingManager.takeDamage(building, 0, null);
+                this.deselectBuilding();
+                break;
+        }
     }
 }
 

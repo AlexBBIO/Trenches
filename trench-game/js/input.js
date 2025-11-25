@@ -280,6 +280,9 @@ export class Input {
         const clickedUnit = this.game.unitManager.getUnitAt(this.worldX, this.worldY);
         
         if (clickedUnit && clickedUnit.team === CONFIG.TEAM_PLAYER) {
+            // Deselect any building
+            this.game.ui.deselectBuilding();
+            
             // Select just this unit
             if (this.keys['shift']) {
                 // Add to selection
@@ -292,15 +295,28 @@ export class Input {
                 // Select only this unit
                 this.game.selectUnits([clickedUnit]);
             }
-        } else {
-            // Start box selection
-            this.isDraggingSelection = true;
-            this.selectionStart = { x: this.worldX, y: this.worldY };
-            this.selectionEnd = { x: this.worldX, y: this.worldY };
-            
-            if (!this.keys['shift']) {
-                this.game.clearSelection();
-            }
+            return;
+        }
+        
+        // Check if clicking on a building
+        const clickedBuilding = this.game.buildingManager.getBuildingAt(this.worldX, this.worldY);
+        
+        if (clickedBuilding && clickedBuilding.team === CONFIG.TEAM_PLAYER && !clickedBuilding.isBlueprint) {
+            // Select the building
+            this.game.ui.selectBuilding(clickedBuilding);
+            return;
+        }
+        
+        // Deselect building when clicking elsewhere
+        this.game.ui.deselectBuilding();
+        
+        // Start box selection
+        this.isDraggingSelection = true;
+        this.selectionStart = { x: this.worldX, y: this.worldY };
+        this.selectionEnd = { x: this.worldX, y: this.worldY };
+        
+        if (!this.keys['shift']) {
+            this.game.clearSelection();
         }
     }
     

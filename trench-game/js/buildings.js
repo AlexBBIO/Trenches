@@ -259,6 +259,23 @@ export class BuildingManager {
         );
     }
     
+    // Get building at world position
+    getBuildingAt(x, y) {
+        // Check buildings from front to back (reverse order for click priority)
+        for (let i = this.buildings.length - 1; i >= 0; i--) {
+            const b = this.buildings[i];
+            if (b.destroyed) continue;
+            
+            const dist = Math.sqrt((b.x - x) ** 2 + (b.y - y) ** 2);
+            // Use building radius for click detection
+            const clickRadius = b.radius || 30;
+            if (dist <= clickRadius) {
+                return b;
+            }
+        }
+        return null;
+    }
+    
     // Get mortars needing ammo resupply
     getMortarsNeedingAmmo(team) {
         return this.buildings.filter(b => 
@@ -1163,7 +1180,41 @@ export class BuildingManager {
                     this.renderMortar(ctx, building);
                     break;
             }
+            
+            // Render selection highlight if selected
+            if (building.selected) {
+                this.renderSelectionHighlight(ctx, building);
+            }
         }
+    }
+    
+    // Render selection highlight around a building
+    renderSelectionHighlight(ctx, building) {
+        ctx.save();
+        ctx.translate(building.x, building.y);
+        
+        const radius = (building.radius || 30) + 10;
+        
+        // Animated dashed circle
+        ctx.strokeStyle = '#d4a030';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([8, 4]);
+        ctx.lineDashOffset = -performance.now() / 50; // Animate dash
+        
+        ctx.beginPath();
+        ctx.arc(0, 0, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Glow effect
+        ctx.shadowColor = '#d4a030';
+        ctx.shadowBlur = 10;
+        ctx.strokeStyle = 'rgba(212, 160, 48, 0.5)';
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(0, 0, radius - 2, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        ctx.restore();
     }
     
     renderBuildingConnections(ctx) {
