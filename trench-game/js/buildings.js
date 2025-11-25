@@ -539,8 +539,20 @@ export class BuildingManager {
             });
             
         } else if (building.type === 'artillery') {
-            const targetX = target.x + (Math.random() - 0.5) * 40;
-            const targetY = target.y + (Math.random() - 0.5) * 40;
+            // Artillery has significant spread that increases with distance
+            const dist = Math.sqrt((target.x - building.x) ** 2 + (target.y - building.y) ** 2);
+            
+            // Base spread of 60, plus additional spread based on distance (up to +100 at max range)
+            const baseSpread = 60;
+            const distanceSpread = (dist / CONFIG.ARTILLERY_RANGE) * 100;
+            const totalSpread = baseSpread + distanceSpread;
+            
+            // Random angle and distance for the impact point
+            const spreadAngle = Math.random() * Math.PI * 2;
+            const spreadDist = Math.random() * totalSpread;
+            
+            const targetX = target.x + Math.cos(spreadAngle) * spreadDist;
+            const targetY = target.y + Math.sin(spreadAngle) * spreadDist;
             
             this.game.addEffect('muzzle',
                 building.x + Math.cos(building.angle) * 35,
@@ -548,9 +560,12 @@ export class BuildingManager {
                 { size: 30, duration: 0.2 }
             );
             
+            // Shell flight time varies with distance (0.8s to 1.5s)
+            const flightTime = 800 + (dist / CONFIG.ARTILLERY_RANGE) * 700;
+            
             setTimeout(() => {
                 this.artilleryExplosion(targetX, targetY, building);
-            }, 1000);
+            }, flightTime);
         }
     }
     

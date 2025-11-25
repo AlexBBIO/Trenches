@@ -624,15 +624,30 @@ export class TrenchSystem {
     isInTrench(x, y, team = null) {
         for (const trench of this.trenches) {
             if (team !== null && trench.team !== team) continue;
-            if (trench.isBlueprint) continue;
             
             for (const segment of trench.segments) {
-                if (!segment.built) continue;
-                
-                // Check distance to line segment
-                const dist = this.pointToSegmentDistance(x, y, segment.start, segment.end);
-                if (dist < trench.width / 2) {
-                    return trench;
+                // For blueprints, check if this segment has any progress
+                if (trench.isBlueprint) {
+                    if (segment.progress <= 0) continue;
+                    
+                    // Only the built portion provides protection
+                    const builtEnd = {
+                        x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
+                        y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
+                    };
+                    
+                    const dist = this.pointToSegmentDistance(x, y, segment.start, builtEnd);
+                    if (dist < trench.width / 2) {
+                        return trench;
+                    }
+                } else {
+                    // Completed trench - check built segments
+                    if (!segment.built) continue;
+                    
+                    const dist = this.pointToSegmentDistance(x, y, segment.start, segment.end);
+                    if (dist < trench.width / 2) {
+                        return trench;
+                    }
                 }
             }
         }
