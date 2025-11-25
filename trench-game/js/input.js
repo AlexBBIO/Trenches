@@ -37,6 +37,10 @@ export class Input {
         this.isPanning = false;
         this.panStart = { x: 0, y: 0 };
         
+        // Double click detection
+        this.lastClickTime = 0;
+        this.lastClickedUnitId = null;
+        
         // Bind event handlers
         this.onMouseDown = this.onMouseDown.bind(this);
         this.onMouseUp = this.onMouseUp.bind(this);
@@ -66,8 +70,10 @@ export class Input {
             this.mouseDown = true;
             this.handleLeftClick();
         } else if (e.button === 1) { // Middle click
-            // Middle mouse panning disabled - use WASD for camera movement
             e.preventDefault();
+            this.isPanning = true;
+            this.panStart = { x: e.clientX, y: e.clientY };
+            this.game.canvas.style.cursor = 'grabbing';
         } else if (e.button === 2) { // Right click
             this.rightMouseDown = true;
             this.handleRightClick();
@@ -78,6 +84,9 @@ export class Input {
         if (e.button === 0) {
             this.mouseDown = false;
             this.handleLeftRelease();
+        } else if (e.button === 1) {
+            this.isPanning = false;
+            this.game.canvas.style.cursor = '';
         } else if (e.button === 2) {
             this.rightMouseDown = false;
         }
@@ -91,7 +100,12 @@ export class Input {
         this.mouseY = e.clientY;
         this.updateWorldCoords();
         
-        // Middle mouse panning disabled - use WASD for camera movement
+        // Middle mouse panning
+        if (this.isPanning) {
+            // Move camera in opposite direction of mouse to simulate dragging the ground
+            this.renderer.pan(-dx, -dy);
+            return;
+        }
         
         // Selection drag
         if (this.isDraggingSelection) {
@@ -127,7 +141,9 @@ export class Input {
     
     onWheel(e) {
         e.preventDefault();
-        // Mouse wheel zoom disabled - use WASD for camera movement
+        // Zoom based on scroll direction
+        const delta = e.deltaY > 0 ? -1 : 1;
+        this.renderer.zoom(delta, e.clientX, e.clientY);
     }
     
     onKeyDown(e) {
@@ -280,6 +296,20 @@ export class Input {
         const clickedUnit = this.game.unitManager.getUnitAt(this.worldX, this.worldY);
         
         if (clickedUnit && clickedUnit.team === CONFIG.TEAM_PLAYER) {
+            // Check for double click
+            const now = Date.now();
+            if (this.lastClickedUnitId === clickedUnit.id && (now - this.lastClickTime) < 300) {
+                // Double click! Select all unassigned of this type
+                this.game.ui.selectAllUnassignedOfType(clickedUnit.type);
+                this.lastClickTime = 0;
+                this.lastClickedUnitId = null;
+                return;
+            }
+            
+            // Update click tracking
+            this.lastClickTime = now;
+            this.lastClickedUnitId = clickedUnit.id;
+            
             // Deselect any building
             this.game.ui.deselectBuilding();
             
@@ -297,6 +327,9 @@ export class Input {
             }
             return;
         }
+        
+        // Reset double click tracking if we didn't click a friendly unit
+        this.lastClickedUnitId = null;
         
         // Check if clicking on a building
         const clickedBuilding = this.game.buildingManager.getBuildingAt(this.worldX, this.worldY);

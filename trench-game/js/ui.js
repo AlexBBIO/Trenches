@@ -80,6 +80,9 @@ export class UI {
         // this.scoutCooldown = document.getElementById('scout-cooldown');
         // this.scoutCooldownText = document.getElementById('scout-cooldown-text');
         
+        // Zoom controls
+        this.zoomControls = document.getElementById('zoom-controls');
+
         // Setup event listeners
         this.setupEventListeners();
     }
@@ -173,6 +176,32 @@ export class UI {
         //         }
         //     }
         // });
+        // Zoom buttons
+        const zoomInBtn = document.getElementById('zoom-in-btn');
+        if (zoomInBtn) {
+            zoomInBtn.addEventListener('click', () => {
+                this.game.renderer.zoom(1, this.game.canvas.width/2, this.game.canvas.height/2);
+            });
+        }
+        
+        const zoomOutBtn = document.getElementById('zoom-out-btn');
+        if (zoomOutBtn) {
+            zoomOutBtn.addEventListener('click', () => {
+                this.game.renderer.zoom(-1, this.game.canvas.width/2, this.game.canvas.height/2);
+            });
+        }
+
+        // Keyboard shortcuts for zoom
+        document.addEventListener('keydown', (e) => {
+            if (this.game.state === 'playing') {
+                if (e.key === '+' || e.key === '=') {
+                    this.game.renderer.zoom(1, this.game.canvas.width/2, this.game.canvas.height/2);
+                }
+                if (e.key === '-' || e.key === '_') {
+                    this.game.renderer.zoom(-1, this.game.canvas.width/2, this.game.canvas.height/2);
+                }
+            }
+        });
     }
     
     // Scout flyover methods disabled for now
@@ -320,6 +349,7 @@ export class UI {
         this.gameOver.classList.add('hidden');
         this.hud.classList.remove('hidden');
         this.minimap.classList.remove('hidden');
+        if (this.zoomControls) this.zoomControls.classList.remove('hidden');
         
         // Set minimap size
         this.minimap.width = 200;
@@ -332,6 +362,7 @@ export class UI {
     hideHUD() {
         this.hud.classList.add('hidden');
         this.minimap.classList.add('hidden');
+        if (this.zoomControls) this.zoomControls.classList.add('hidden');
     }
     
     showMainMenu() {
@@ -486,6 +517,40 @@ export class UI {
         this.game.clearSelection();
         
         // Select all of this type
+        units.forEach(unit => {
+            unit.selected = true;
+            this.game.selectedUnits.push(unit);
+        });
+        
+        // Update UI
+        this.updateSelection(this.game.selectedUnits);
+        
+        // Switch to select tool
+        this.game.setTool('select');
+    }
+    
+    selectAllUnassignedOfType(unitType) {
+        const units = this.game.unitManager.units.filter(u => {
+            if (u.type !== unitType || u.team !== CONFIG.TEAM_PLAYER || u.state === 'dead') {
+                return false;
+            }
+            
+            // Check if unassigned
+            if (unitType === 'worker') {
+                return !u.task;
+            } else if (unitType === 'soldier') {
+                return !u.mannedBuilding && !u.inBunker;
+            }
+            
+            return false;
+        });
+        
+        if (units.length === 0) return;
+        
+        // Clear current selection
+        this.game.clearSelection();
+        
+        // Select all unassigned of this type
         units.forEach(unit => {
             unit.selected = true;
             this.game.selectedUnits.push(unit);
