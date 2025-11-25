@@ -7,10 +7,14 @@ export class TrenchSystem {
         this.trenches = [];
         this.trenchIdCounter = 0;
         this.claimedSegments = new Map(); // Map of "trenchId-segIdx" -> workerId
+        this.networks = []; // Networks of connected trenches
+        this.junctions = []; // Junction points where trenches meet
     }
     
     clear() {
         this.trenches = [];
+        this.networks = [];
+        this.junctions = [];
     }
     
     createTrench(points, team, isBlueprint = true) {
@@ -133,6 +137,306 @@ export class TrenchSystem {
                 }
             }
         }
+    }
+    
+    // Phase 1: Build networks of connected trenches
+    buildTrenchNetworks() {
+        this.networks = [];
+        this.junctions = [];
+        
+        // Group trenches by team first
+        const playerTrenches = this.trenches.filter(t => t.team === CONFIG.TEAM_PLAYER);
+        const enemyTrenches = this.trenches.filter(t => t.team === CONFIG.TEAM_ENEMY);
+        
+        // Build networks for each team
+        this.buildNetworksForTeam(playerTrenches);
+        this.buildNetworksForTeam(enemyTrenches);
+        
+        // Find junction points
+        this.findJunctions();
+        
+        return this.networks;
+    }
+    
+    buildNetworksForTeam(teamTrenches) {
+        const visited = new Set();
+        
+        for (const trench of teamTrenches) {
+            if (visited.has(trench.id)) continue;
+            
+            // BFS to find all connected trenches
+            const network = {
+                trenches: [],
+                team: trench.team,
+                points: [], // All unique points in the network
+                segments: [] // All segments for unified rendering
+            };
+            
+            const queue = [trench];
+            while (queue.length > 0) {
+                const current = queue.shift();
+                if (visited.has(current.id)) continue;
+                
+                visited.add(current.id);
+                network.trenches.push(current);
+                
+                // Add connected trenches to queue
+                for (const connectedId of current.connections) {
+                    const connected = this.trenches.find(t => t.id === connectedId);
+                    if (connected && !visited.has(connected.id)) {
+                        queue.push(connected);
+                    }
+                }
+            }
+            
+            // Build unified segment list for this network
+            this.buildNetworkSegments(network);
+            
+            this.networks.push(network);
+        }
+    }
+    
+    buildNetworkSegments(network) {
+        network.segments = [];
+        network.points = [];
+        
+        const pointMap = new Map(); // Key: "x,y" -> point index
+        
+        for (const trench of network.trenches) {
+            for (const segment of trench.segments) {
+                // Add segment to network
+                network.segments.push({
+                    start: segment.start,
+                    end: segment.end,
+                    length: segment.length,
+                    built: segment.built,
+                    progress: segment.progress,
+                    trench: trench
+                });
+                
+                // Track unique points
+                const startKey = `${Math.round(segment.start.x)},${Math.round(segment.start.y)}`;
+                const endKey = `${Math.round(segment.end.x)},${Math.round(segment.end.y)}`;
+                
+                if (!pointMap.has(startKey)) {
+                    pointMap.set(startKey, { 
+                        x: segment.start.x, 
+                        y: segment.start.y, 
+                        connections: [] 
+                    });
+                }
+                if (!pointMap.has(endKey)) {
+                    pointMap.set(endKey, { 
+                        x: segment.end.x, 
+                        y: segment.end.y, 
+                        connections: [] 
+                    });
+                }
+                
+                // Track connections for junction detection
+                const startPoint = pointMap.get(startKey);
+                const endPoint = pointMap.get(endKey);
+                startPoint.connections.push({ segment, end: endPoint });
+                endPoint.connections.push({ segment, end: startPoint });
+            }
+        }
+        
+        network.points = Array.from(pointMap.values());
+    }
+    
+    findJunctions() {
+        this.junctions = [];
+        
+        for (const network of this.networks) {
+            for (const point of network.points) {
+                if (point.connections.length >= 3) {
+                    // T-junction or crossroad (3+ segments)
+                    this.junctions.push({
+                        x: point.x,
+                        y: point.y,
+                        type: point.connections.length === 3 ? 't-junction' : 'crossroad',
+                        connections: point.connections,
+                        team: network.team
+                    });
+                } else if (point.connections.length === 2) {
+                    // Check if it's an elbow (significant angle change)
+                    const conn1 = point.connections[0];
+                    const conn2 = point.connections[1];
+                    
+                    // Get direction vectors from this point to connected endpoints
+                    const dir1 = {
+                        x: conn1.end.x - point.x,
+                        y: conn1.end.y - point.y
+                    };
+                    const dir2 = {
+                        x: conn2.end.x - point.x,
+                        y: conn2.end.y - point.y
+                    };
+                    
+                    const len1 = Math.sqrt(dir1.x * dir1.x + dir1.y * dir1.y);
+                    const len2 = Math.sqrt(dir2.x * dir2.x + dir2.y * dir2.y);
+                    
+                    if (len1 > 0.1 && len2 > 0.1) {
+                        // Normalize
+                        dir1.x /= len1; dir1.y /= len1;
+                        dir2.x /= len2; dir2.y /= len2;
+                        
+                        // Calculate angle between directions
+                        const dot = dir1.x * dir2.x + dir1.y * dir2.y;
+                        const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+                        
+                        // If angle is significant (not nearly straight), it's an elbow
+                        // Nearly straight would be dot close to -1 (180 degrees)
+                        if (dot > -0.85) { // More than ~30 degree deviation from straight
+                            this.junctions.push({
+                                x: point.x,
+                                y: point.y,
+                                type: 'elbow',
+                                angle: angle,
+                                connections: point.connections,
+                                team: network.team
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Phase 2: Compute polygon outline for a trench segment
+    computeTrenchPolygon(start, end, width) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        
+        if (length < 0.1) {
+            return null;
+        }
+        
+        // Perpendicular normal vector
+        const nx = -dy / length;
+        const ny = dx / length;
+        
+        const halfWidth = width / 2;
+        
+        // Four corners of the segment polygon
+        return {
+            leftStart: { x: start.x + nx * halfWidth, y: start.y + ny * halfWidth },
+            rightStart: { x: start.x - nx * halfWidth, y: start.y - ny * halfWidth },
+            leftEnd: { x: end.x + nx * halfWidth, y: end.y + ny * halfWidth },
+            rightEnd: { x: end.x - nx * halfWidth, y: end.y - ny * halfWidth },
+            normal: { x: nx, y: ny },
+            direction: { x: dx / length, y: dy / length }
+        };
+    }
+    
+    // Compute miter point where two segments meet at a corner
+    computeMiterPoint(p1, p2, p3, width, side) {
+        // Direction vectors
+        const d1x = p2.x - p1.x;
+        const d1y = p2.y - p1.y;
+        const d2x = p3.x - p2.x;
+        const d2y = p3.y - p2.y;
+        
+        const len1 = Math.sqrt(d1x * d1x + d1y * d1y);
+        const len2 = Math.sqrt(d2x * d2x + d2y * d2y);
+        
+        if (len1 < 0.1 || len2 < 0.1) {
+            return { x: p2.x, y: p2.y };
+        }
+        
+        // Normalized directions
+        const dir1 = { x: d1x / len1, y: d1y / len1 };
+        const dir2 = { x: d2x / len2, y: d2y / len2 };
+        
+        // Normals (perpendicular)
+        const n1 = { x: -dir1.y * side, y: dir1.x * side };
+        const n2 = { x: -dir2.y * side, y: dir2.x * side };
+        
+        // Average normal for miter direction
+        const avgNx = n1.x + n2.x;
+        const avgNy = n1.y + n2.y;
+        const avgLen = Math.sqrt(avgNx * avgNx + avgNy * avgNy);
+        
+        if (avgLen < 0.1) {
+            // Parallel segments, no miter needed
+            return {
+                x: p2.x + n1.x * width / 2,
+                y: p2.y + n1.y * width / 2
+            };
+        }
+        
+        const avgN = { x: avgNx / avgLen, y: avgNy / avgLen };
+        
+        // Calculate miter length based on angle between segments
+        const dot = dir1.x * dir2.x + dir1.y * dir2.y;
+        const angle = Math.acos(Math.max(-1, Math.min(1, dot)));
+        
+        // Miter length formula: width / (2 * sin(angle/2))
+        const miterLen = (width / 2) / Math.max(0.3, Math.sin(angle / 2));
+        
+        // Limit miter length to prevent spikes on sharp angles
+        const limitedMiterLen = Math.min(miterLen, width * 2);
+        
+        return {
+            x: p2.x + avgN.x * limitedMiterLen,
+            y: p2.y + avgN.y * limitedMiterLen
+        };
+    }
+    
+    // Generate polygon points for an entire trench path
+    generateTrenchOutline(points, width) {
+        if (points.length < 2) return { left: [], right: [] };
+        
+        const halfWidth = width / 2;
+        const leftPoints = [];
+        const rightPoints = [];
+        
+        for (let i = 0; i < points.length; i++) {
+            const p = points[i];
+            const prev = i > 0 ? points[i - 1] : null;
+            const next = i < points.length - 1 ? points[i + 1] : null;
+            
+            if (prev && next) {
+                // Middle point - compute miter
+                leftPoints.push(this.computeMiterPoint(prev, p, next, width, 1));
+                rightPoints.push(this.computeMiterPoint(prev, p, next, width, -1));
+            } else if (next) {
+                // Start point
+                const dx = next.x - p.x;
+                const dy = next.y - p.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                if (len > 0.1) {
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    leftPoints.push({ x: p.x + nx * halfWidth, y: p.y + ny * halfWidth });
+                    rightPoints.push({ x: p.x - nx * halfWidth, y: p.y - ny * halfWidth });
+                }
+            } else if (prev) {
+                // End point
+                const dx = p.x - prev.x;
+                const dy = p.y - prev.y;
+                const len = Math.sqrt(dx * dx + dy * dy);
+                if (len > 0.1) {
+                    const nx = -dy / len;
+                    const ny = dx / len;
+                    leftPoints.push({ x: p.x + nx * halfWidth, y: p.y + ny * halfWidth });
+                    rightPoints.push({ x: p.x - nx * halfWidth, y: p.y - ny * halfWidth });
+                }
+            }
+        }
+        
+        return { left: leftPoints, right: rightPoints };
+    }
+    
+    // Create a closed polygon path from left and right outlines
+    createClosedPolygon(leftPoints, rightPoints) {
+        // Polygon goes: left points forward, right points backward
+        const polygon = [...leftPoints];
+        for (let i = rightPoints.length - 1; i >= 0; i--) {
+            polygon.push(rightPoints[i]);
+        }
+        return polygon;
     }
     
     calculateSegments(trench) {
@@ -660,69 +964,323 @@ export class TrenchSystem {
     }
     
     render(ctx) {
-        // Sort trenches so we render blueprints last (on top)
-        const sortedTrenches = [...this.trenches].sort((a, b) => {
-            if (a.isBlueprint === b.isBlueprint) return 0;
-            return a.isBlueprint ? 1 : -1;
-        });
+        // Build networks for seamless rendering
+        this.buildTrenchNetworks();
         
-        for (const trench of sortedTrenches) {
-            this.renderTrench(ctx, trench);
+        // Separate blueprints from completed trenches
+        const blueprintTrenches = this.trenches.filter(t => t.isBlueprint);
+        const completedTrenches = this.trenches.filter(t => !t.isBlueprint);
+        
+        // LAYER 1: Render all blueprint trenches first (dashed, underneath)
+        for (const trench of blueprintTrenches) {
+            this.renderBlueprintTrench(ctx, trench);
+        }
+        
+        // For completed trenches, render in layers across ALL trenches
+        // This prevents visible seams at segment joints
+        
+        // LAYER 2: All shadows
+        for (const trench of completedTrenches) {
+            this.renderTrenchShadowLayer(ctx, trench);
+        }
+        
+        // LAYER 3: All parapets (outer sandbag wall)
+        for (const trench of completedTrenches) {
+            this.renderTrenchParapetLayer(ctx, trench);
+        }
+        
+        // LAYER 4: All inner walls
+        for (const trench of completedTrenches) {
+            this.renderTrenchWallLayer(ctx, trench);
+        }
+        
+        // LAYER 5: All floors
+        for (const trench of completedTrenches) {
+            this.renderTrenchFloorLayer(ctx, trench);
+        }
+        
+        // LAYER 6: Junction hubs (render over floor to cover seams)
+        this.renderJunctions(ctx);
+        
+        // LAYER 7: All decorations (sandbags, duckboards)
+        for (const trench of completedTrenches) {
+            this.renderTrenchDecorations(ctx, trench);
         }
     }
     
-    renderTrench(ctx, trench) {
+    renderBlueprintTrench(ctx, trench) {
         if (trench.points.length < 2) return;
         
         const width = trench.width;
         
-        // Draw each segment
-        for (let i = 0; i < trench.segments.length; i++) {
-            const segment = trench.segments[i];
-            
-            if (trench.isBlueprint) {
-                // Blueprint - dashed outline with better visibility
-                if (segment.progress > 0) {
-                    // Partially built section
-                    const partialEnd = {
-                        x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
-                        y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
-                    };
-                    this.drawTrenchSegment(ctx, segment.start, partialEnd, width, false);
-                }
-                
-                // Unbuilt portion - dashed outline
-                ctx.strokeStyle = 'rgba(138, 122, 90, 0.5)';
-                ctx.lineWidth = width;
-                ctx.lineCap = 'round';
-                ctx.setLineDash([12, 8]);
-                
-                ctx.beginPath();
-                const startX = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
-                const startY = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
-                ctx.moveTo(startX, startY);
-                ctx.lineTo(segment.end.x, segment.end.y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-                
-                // Inner dashed line
-                ctx.strokeStyle = 'rgba(26, 26, 10, 0.5)';
-                ctx.lineWidth = width - 10;
-                ctx.setLineDash([12, 8]);
-                ctx.beginPath();
-                ctx.moveTo(startX, startY);
-                ctx.lineTo(segment.end.x, segment.end.y);
-                ctx.stroke();
-                ctx.setLineDash([]);
-            } else {
-                // Completed trench
-                this.drawTrenchSegment(ctx, segment.start, segment.end, width, true);
+        for (const segment of trench.segments) {
+            // Built portion (if any progress)
+            if (segment.progress > 0) {
+                const partialEnd = {
+                    x: segment.start.x + (segment.end.x - segment.start.x) * segment.progress,
+                    y: segment.start.y + (segment.end.y - segment.start.y) * segment.progress
+                };
+                this.drawTrenchSegmentComplete(ctx, segment.start, partialEnd, width);
             }
+            
+            // Unbuilt portion - dashed outline
+            ctx.strokeStyle = 'rgba(138, 122, 90, 0.5)';
+            ctx.lineWidth = width;
+            ctx.lineCap = 'round';
+            ctx.setLineDash([12, 8]);
+            
+            ctx.beginPath();
+            const startX = segment.start.x + (segment.end.x - segment.start.x) * segment.progress;
+            const startY = segment.start.y + (segment.end.y - segment.start.y) * segment.progress;
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(segment.end.x, segment.end.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            
+            // Inner dashed line
+            ctx.strokeStyle = 'rgba(26, 26, 10, 0.5)';
+            ctx.lineWidth = width - 10;
+            ctx.setLineDash([12, 8]);
+            ctx.beginPath();
+            ctx.moveTo(startX, startY);
+            ctx.lineTo(segment.end.x, segment.end.y);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
     }
     
-    drawTrenchSegment(ctx, start, end, width, complete) {
-        // WWI style trenches with sandbag walls and duckboards
+    // LAYER 2: Shadow layer - unified shadow for entire trench
+    renderTrenchShadowLayer(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width;
+        const shadowOffset = 3;
+        const shadowExpand = 3;
+        
+        // Generate outline for entire trench
+        const outline = this.generateTrenchOutline(trench.points, width + shadowExpand * 2);
+        
+        if (outline.left.length < 2) return;
+        
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        
+        // Draw left side offset for shadow
+        ctx.moveTo(outline.left[0].x + shadowOffset, outline.left[0].y + shadowOffset);
+        for (let i = 1; i < outline.left.length; i++) {
+            ctx.lineTo(outline.left[i].x + shadowOffset, outline.left[i].y + shadowOffset);
+        }
+        
+        // Draw right side reversed
+        for (let i = outline.right.length - 1; i >= 0; i--) {
+            ctx.lineTo(outline.right[i].x + shadowOffset, outline.right[i].y + shadowOffset);
+        }
+        
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    // LAYER 3: Parapet layer - outer sandbag wall as unified polygon
+    renderTrenchParapetLayer(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width + 4; // Parapet is slightly wider
+        
+        // Generate outline for entire trench
+        const outline = this.generateTrenchOutline(trench.points, width);
+        
+        if (outline.left.length < 2) return;
+        
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+        ctx.beginPath();
+        
+        ctx.moveTo(outline.left[0].x, outline.left[0].y);
+        for (let i = 1; i < outline.left.length; i++) {
+            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        }
+        
+        for (let i = outline.right.length - 1; i >= 0; i--) {
+            ctx.lineTo(outline.right[i].x, outline.right[i].y);
+        }
+        
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    // LAYER 4: Wall layer - inner earth wall
+    renderTrenchWallLayer(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width - 6;
+        
+        const outline = this.generateTrenchOutline(trench.points, width);
+        
+        if (outline.left.length < 2) return;
+        
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.beginPath();
+        
+        ctx.moveTo(outline.left[0].x, outline.left[0].y);
+        for (let i = 1; i < outline.left.length; i++) {
+            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        }
+        
+        for (let i = outline.right.length - 1; i >= 0; i--) {
+            ctx.lineTo(outline.right[i].x, outline.right[i].y);
+        }
+        
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    // LAYER 5: Floor layer - dark trench interior
+    renderTrenchFloorLayer(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width - 12;
+        
+        const outline = this.generateTrenchOutline(trench.points, width);
+        
+        if (outline.left.length < 2) return;
+        
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        
+        ctx.moveTo(outline.left[0].x, outline.left[0].y);
+        for (let i = 1; i < outline.left.length; i++) {
+            ctx.lineTo(outline.left[i].x, outline.left[i].y);
+        }
+        
+        for (let i = outline.right.length - 1; i >= 0; i--) {
+            ctx.lineTo(outline.right[i].x, outline.right[i].y);
+        }
+        
+        ctx.closePath();
+        ctx.fill();
+    }
+    
+    // LAYER 6: Render junction hubs where multiple trenches meet
+    renderJunctions(ctx) {
+        for (const junction of this.junctions) {
+            this.renderJunctionHub(ctx, junction);
+        }
+    }
+    
+    renderJunctionHub(ctx, junction) {
+        const maxWidth = 24; // Default trench width
+        
+        if (junction.type === 'elbow') {
+            this.renderElbowJunction(ctx, junction, maxWidth);
+        } else {
+            // T-junction or crossroad - render circular hub
+            this.renderCircularHub(ctx, junction, maxWidth);
+        }
+    }
+    
+    renderCircularHub(ctx, junction, width) {
+        const hubRadius = width / 2 + 2;
+        
+        // Shadow
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.arc(junction.x + 3, junction.y + 3, hubRadius + 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Parapet (sandbag) ring
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, hubRadius + 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wall ring
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, hubRadius - 3, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Floor
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, hubRadius - 6, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Add sandbag details around the hub
+        const sandbagCount = junction.type === 'crossroad' ? 8 : 6;
+        for (let i = 0; i < sandbagCount; i++) {
+            const angle = (i / sandbagCount) * Math.PI * 2;
+            const bx = junction.x + Math.cos(angle) * (hubRadius + 1);
+            const by = junction.y + Math.sin(angle) * (hubRadius + 1);
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 1, 5, 3, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 5, 3, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+    
+    renderElbowJunction(ctx, junction, width) {
+        // For elbows, render a smooth curved corner patch
+        const radius = width / 2;
+        
+        // Shadow arc
+        ctx.fillStyle = CONFIG.COLORS.SHADOW;
+        ctx.beginPath();
+        ctx.arc(junction.x + 3, junction.y + 3, radius + 5, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Parapet arc
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, radius + 4, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Wall arc
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, radius - 1, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Floor arc
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.beginPath();
+        ctx.arc(junction.x, junction.y, radius - 4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    
+    // LAYER 7: Decorations - sandbags and duckboards
+    renderTrenchDecorations(ctx, trench) {
+        if (trench.points.length < 2) return;
+        
+        const width = trench.width;
+        
+        // Draw sandbag details and duckboards for each segment
+        for (const segment of trench.segments) {
+            if (!segment.built) continue;
+            
+            const dx = segment.end.x - segment.start.x;
+            const dy = segment.end.y - segment.start.y;
+            const length = segment.length;
+            
+            if (length < 10) continue;
+            
+            const nx = -dy / length;
+            const ny = dx / length;
+            
+            // Draw sandbag parapet details
+            this.drawSandbagParapet(ctx, segment.start, segment.end, width, length, nx, ny);
+            
+            // Draw duckboards
+            this.drawDuckboards(ctx, segment.start, segment.end, width, length, dx, dy, nx, ny);
+        }
+    }
+    
+    // Helper method for drawing complete trench segment (used for partial blueprint builds)
+    drawTrenchSegmentComplete(ctx, start, end, width) {
         const dx = end.x - start.x;
         const dy = end.y - start.y;
         const length = Math.sqrt(dx * dx + dy * dy);
@@ -731,7 +1289,7 @@ export class TrenchSystem {
         const nx = -dy / length;
         const ny = dx / length;
         
-        // Shadow underneath the trench
+        // Shadow
         ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
         ctx.moveTo(start.x + nx * (width/2 + 3) + 3, start.y + ny * (width/2 + 3) + 3);
@@ -741,42 +1299,35 @@ export class TrenchSystem {
         ctx.closePath();
         ctx.fill();
         
-        // Outer sandbag parapet (raised wall)
-        const sandbagColor = complete ? CONFIG.COLORS.SANDBAG : CONFIG.COLORS.SANDBAG_DARK;
-        ctx.strokeStyle = sandbagColor;
-        ctx.lineWidth = width + 4;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
+        // Parapet
+        ctx.fillStyle = CONFIG.COLORS.SANDBAG;
         ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
+        ctx.moveTo(start.x + nx * (width/2 + 2), start.y + ny * (width/2 + 2));
+        ctx.lineTo(end.x + nx * (width/2 + 2), end.y + ny * (width/2 + 2));
+        ctx.lineTo(end.x - nx * (width/2 + 2), end.y - ny * (width/2 + 2));
+        ctx.lineTo(start.x - nx * (width/2 + 2), start.y - ny * (width/2 + 2));
+        ctx.closePath();
+        ctx.fill();
         
-        // Sandbag texture on parapet
-        if (complete && length > 10) {
-            this.drawSandbagParapet(ctx, start, end, width, length, nx, ny);
-        }
-        
-        // Inner trench wall (darker earth)
-        ctx.strokeStyle = CONFIG.COLORS.TRENCH_WALL;
-        ctx.lineWidth = width - 6;
+        // Wall
+        ctx.fillStyle = CONFIG.COLORS.TRENCH_WALL;
         ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
+        ctx.moveTo(start.x + nx * (width/2 - 3), start.y + ny * (width/2 - 3));
+        ctx.lineTo(end.x + nx * (width/2 - 3), end.y + ny * (width/2 - 3));
+        ctx.lineTo(end.x - nx * (width/2 - 3), end.y - ny * (width/2 - 3));
+        ctx.lineTo(start.x - nx * (width/2 - 3), start.y - ny * (width/2 - 3));
+        ctx.closePath();
+        ctx.fill();
         
-        // Trench floor (very dark)
-        ctx.strokeStyle = CONFIG.COLORS.TRENCH;
-        ctx.lineWidth = width - 12;
+        // Floor
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
         ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(end.x, end.y);
-        ctx.stroke();
-        
-        // Duckboard walkway in center
-        if (complete) {
-            this.drawDuckboards(ctx, start, end, width, length, dx, dy, nx, ny);
-        }
+        ctx.moveTo(start.x + nx * (width/2 - 6), start.y + ny * (width/2 - 6));
+        ctx.lineTo(end.x + nx * (width/2 - 6), end.y + ny * (width/2 - 6));
+        ctx.lineTo(end.x - nx * (width/2 - 6), end.y - ny * (width/2 - 6));
+        ctx.lineTo(start.x - nx * (width/2 - 6), start.y - ny * (width/2 - 6));
+        ctx.closePath();
+        ctx.fill();
     }
     
     drawSandbagParapet(ctx, start, end, width, length, nx, ny) {
