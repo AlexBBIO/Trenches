@@ -190,6 +190,18 @@ class Game {
         // Effects (explosions, muzzle flashes, etc.)
         this.effects = [];
         
+        // Scout Flyover system
+        this.scoutFlyover = {
+            active: false,
+            cooldown: 0,           // Time until can use again
+            duration: 0,           // Time remaining on current flyover
+            maxCooldown: 60,       // 60 second cooldown
+            maxDuration: 8,        // 8 seconds of revealed map
+            cost: 30,              // Supply cost
+            planeX: 0,             // Plane visual position
+            planeY: 0
+        };
+        
         // Bind methods
         this.gameLoop = this.gameLoop.bind(this);
         this.resize = this.resize.bind(this);
@@ -291,11 +303,57 @@ class Game {
         // Update effects
         this.updateEffects(this.deltaTime);
         
+        // Update scout flyover
+        this.updateScoutFlyover(this.deltaTime);
+        
         // Check win/lose conditions
         this.checkGameOver();
         
         // Update UI
         this.ui.update();
+    }
+    
+    updateScoutFlyover(dt) {
+        // Update cooldown
+        if (this.scoutFlyover.cooldown > 0) {
+            this.scoutFlyover.cooldown -= dt;
+        }
+        
+        // Update active flyover
+        if (this.scoutFlyover.active) {
+            this.scoutFlyover.duration -= dt;
+            
+            // Animate plane across map (left to right)
+            const progress = 1 - (this.scoutFlyover.duration / this.scoutFlyover.maxDuration);
+            this.scoutFlyover.planeX = -100 + (CONFIG.MAP_WIDTH + 200) * progress;
+            this.scoutFlyover.planeY = CONFIG.MAP_HEIGHT * 0.3 + Math.sin(progress * Math.PI * 2) * 50;
+            
+            if (this.scoutFlyover.duration <= 0) {
+                this.scoutFlyover.active = false;
+                this.scoutFlyover.cooldown = this.scoutFlyover.maxCooldown;
+            }
+        }
+    }
+    
+    // Start a scout flyover - reveals the entire map temporarily
+    startScoutFlyover() {
+        if (this.scoutFlyover.active) return false;
+        if (this.scoutFlyover.cooldown > 0) return false;
+        if (!this.canAfford(this.scoutFlyover.cost)) return false;
+        
+        this.spendSupplies(this.scoutFlyover.cost);
+        this.scoutFlyover.active = true;
+        this.scoutFlyover.duration = this.scoutFlyover.maxDuration;
+        this.scoutFlyover.planeX = -100;
+        this.scoutFlyover.planeY = CONFIG.MAP_HEIGHT * 0.3;
+        
+        return true;
+    }
+    
+    canStartScoutFlyover() {
+        return !this.scoutFlyover.active && 
+               this.scoutFlyover.cooldown <= 0 && 
+               this.canAfford(this.scoutFlyover.cost);
     }
     
     updateEffects(dt) {

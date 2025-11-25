@@ -94,6 +94,26 @@ export class UnitManager {
         });
     }
     
+    // Get enemies in range that are currently visible (respects fog of war)
+    // Used for player buildings/units to only target what they can see
+    getVisibleEnemiesInRange(x, y, range, myTeam) {
+        const renderer = this.game.renderer;
+        return this.units.filter(unit => {
+            if (unit.state === UnitState.DEAD) return false;
+            if (unit.team === myTeam) return false;
+            
+            const dist = Math.sqrt((unit.x - x) ** 2 + (unit.y - y) ** 2);
+            if (dist > range) return false;
+            
+            // For player team, check if enemy is visible in fog of war
+            if (myTeam === CONFIG.TEAM_PLAYER && renderer) {
+                return renderer.isPositionVisible(unit.x, unit.y);
+            }
+            
+            return true;
+        });
+    }
+    
     autoAssignSoldier(soldier) {
         // First check for unmanned emplacements
         const unmanned = this.game.buildingManager.getUnmannedEmplacement(soldier.team);
@@ -447,19 +467,25 @@ class Unit {
                 }
             }
             
-            const enemies = this.game.unitManager.getEnemiesInRange(
-                this.x, this.y, this.attackRange, this.team
-            );
+            // Player units respect fog of war - only target visible enemies
+            const enemies = this.team === CONFIG.TEAM_PLAYER
+                ? this.game.unitManager.getVisibleEnemiesInRange(this.x, this.y, this.attackRange, this.team)
+                : this.game.unitManager.getEnemiesInRange(this.x, this.y, this.attackRange, this.team);
             
             // Also check for enemy buildings (artillery, machine guns) in range
             const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
-            const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
-                b.team === enemyTeam && 
-                !b.destroyed && 
-                !b.isBlueprint &&
-                b.type !== 'hq' && // Don't target HQ from idle - need to charge for that
-                Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2) <= this.attackRange
-            );
+            const renderer = this.game.renderer;
+            const enemyBuildings = this.game.buildingManager.buildings.filter(b => {
+                if (b.team !== enemyTeam || b.destroyed || b.isBlueprint) return false;
+                if (b.type === 'hq') return false; // Don't target HQ from idle - need to charge for that
+                const dist = Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2);
+                if (dist > this.attackRange) return false;
+                // Player units respect fog of war
+                if (this.team === CONFIG.TEAM_PLAYER && renderer) {
+                    return renderer.isPositionVisible(b.x, b.y);
+                }
+                return true;
+            });
             
             // Find closest target (unit or building)
             let closestTarget = null;
@@ -1218,6 +1244,7 @@ class Unit {
     
     updateFighting(dt) {
         const enemyTeam = this.team === CONFIG.TEAM_PLAYER ? CONFIG.TEAM_ENEMY : CONFIG.TEAM_PLAYER;
+        const renderer = this.game.renderer;
         
         // TRY TO THROW GRENADES at enemy buildings/emplacements when in range!
         if (this.grenadeCount > 0 && this.grenadeCooldown <= 0) {
@@ -1227,17 +1254,23 @@ class Unit {
             }
         }
         
-        // Look for enemy units
-        const enemies = this.game.unitManager.getEnemiesInRange(this.x, this.y, this.attackRange, this.team);
+        // Look for enemy units - player units respect fog of war
+        const enemies = this.team === CONFIG.TEAM_PLAYER
+            ? this.game.unitManager.getVisibleEnemiesInRange(this.x, this.y, this.attackRange, this.team)
+            : this.game.unitManager.getEnemiesInRange(this.x, this.y, this.attackRange, this.team);
         
         // Also look for enemy buildings (artillery, machine guns) in attack range
-        const enemyBuildings = this.game.buildingManager.buildings.filter(b => 
-            b.team === enemyTeam && 
-            !b.destroyed && 
-            !b.isBlueprint &&
-            b.type !== 'hq' && // HQ requires charging
-            Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2) <= this.attackRange
-        );
+        const enemyBuildings = this.game.buildingManager.buildings.filter(b => {
+            if (b.team !== enemyTeam || b.destroyed || b.isBlueprint) return false;
+            if (b.type === 'hq') return false; // HQ requires charging
+            const dist = Math.sqrt((b.x - this.x) ** 2 + (b.y - this.y) ** 2);
+            if (dist > this.attackRange) return false;
+            // Player units respect fog of war
+            if (this.team === CONFIG.TEAM_PLAYER && renderer) {
+                return renderer.isPositionVisible(b.x, b.y);
+            }
+            return true;
+        });
         
         // Check for close enemies for melee
         const meleeRange = 25;

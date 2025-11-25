@@ -680,10 +680,10 @@ export class BuildingManager {
         
         if (building.occupants.length === 0) return;
         
-        // Find enemies in range
-        const enemies = this.game.unitManager.getEnemiesInRange(
-            building.x, building.y, building.range, building.team
-        );
+        // Find enemies in range - player bunkers respect fog of war
+        const enemies = building.team === CONFIG.TEAM_PLAYER
+            ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
+            : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
         
         if (enemies.length === 0) return;
         
@@ -726,9 +726,10 @@ export class BuildingManager {
     
     // Mortar logic - fires at enemies with fractional shell cost
     updateMortar(building, dt) {
-        const enemies = this.game.unitManager.getEnemiesInRange(
-            building.x, building.y, building.range, building.team
-        );
+        // Player buildings respect fog of war - only target visible enemies
+        const enemies = building.team === CONFIG.TEAM_PLAYER
+            ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
+            : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
         
         if (enemies.length === 0) {
             building.target = null;
@@ -880,9 +881,10 @@ export class BuildingManager {
     }
     
     updateWeapon(building, dt) {
-        const enemies = this.game.unitManager.getEnemiesInRange(
-            building.x, building.y, building.range, building.team
-        );
+        // Player buildings respect fog of war - only target visible enemies
+        const enemies = building.team === CONFIG.TEAM_PLAYER
+            ? this.game.unitManager.getVisibleEnemiesInRange(building.x, building.y, building.range, building.team)
+            : this.game.unitManager.getEnemiesInRange(building.x, building.y, building.range, building.team);
         
         if (enemies.length === 0) {
             building.target = null;
@@ -1096,7 +1098,7 @@ export class BuildingManager {
         // Render barbed wire lines
         for (const wire of this.barbedWireLines) {
             if (wire.destroyed) continue;
-            // Hide enemy wire in fog
+            // Hide enemy wire in fog - only show if currently visible
             if (renderer && wire.team === CONFIG.TEAM_ENEMY) {
                 const midX = wire.points.length > 0 ? wire.points[0].x : 0;
                 const midY = wire.points.length > 0 ? wire.points[0].y : 0;
@@ -1109,10 +1111,10 @@ export class BuildingManager {
         const sortedBuildings = [...this.buildings].sort((a, b) => a.y - b.y);
         for (const building of sortedBuildings) {
             // Hide enemy buildings in fog of war (except HQ which is always visible)
+            // Enemy buildings only visible when currently in vision, not just explored
             if (renderer && building.team === CONFIG.TEAM_ENEMY && building.type !== 'hq') {
-                if (!renderer.isPositionVisible(building.x, building.y) && 
-                    !renderer.isPositionExplored(building.x, building.y)) {
-                    continue; // Don't render unexplored enemy buildings
+                if (!renderer.isPositionVisible(building.x, building.y)) {
+                    continue; // Don't render enemy buildings not currently visible
                 }
             }
             
@@ -2078,7 +2080,7 @@ export class BuildingManager {
         ctx.restore();
     }
     
-    // Observation Post - elevated wooden platform
+    // Observation Post - fortified sandbagged emplacement with viewing slit
     renderObservationPost(ctx, building) {
         ctx.save();
         ctx.translate(building.x, building.y);
@@ -2090,53 +2092,130 @@ export class BuildingManager {
         // Shadow
         ctx.fillStyle = CONFIG.COLORS.SHADOW;
         ctx.beginPath();
-        ctx.ellipse(3, 25, 25, 10, 0, 0, Math.PI * 2);
+        ctx.ellipse(3, 18, 28, 10, 0, 0, Math.PI * 2);
         ctx.fill();
         
-        // Support legs (4 posts)
-        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.fillRect(-18, -30, 5, 55);
-        ctx.fillRect(13, -30, 5, 55);
-        ctx.fillRect(-18, -15, 5, 40);
-        ctx.fillRect(13, -15, 5, 40);
-        
-        // Cross bracing
-        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.lineWidth = 3;
+        // Dugout pit (dark interior visible)
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
         ctx.beginPath();
-        ctx.moveTo(-15, 0);
-        ctx.lineTo(15, 15);
-        ctx.moveTo(15, 0);
-        ctx.lineTo(-15, 15);
-        ctx.stroke();
+        ctx.ellipse(0, 0, 18, 14, 0, 0, Math.PI * 2);
+        ctx.fill();
         
-        // Platform
-        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
-        ctx.fillRect(-22, -35, 44, 8);
-        
-        // Platform planks
-        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.lineWidth = 1;
-        for (let i = 0; i < 6; i++) {
+        // Outer sandbag wall ring
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2;
+            const bx = Math.cos(angle) * 20;
+            const by = Math.sin(angle) * 16;
+            
+            // Skip the front viewing area
+            if (angle > 1.2 && angle < 1.9) continue;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
             ctx.beginPath();
-            ctx.moveTo(-20 + i * 8, -35);
-            ctx.lineTo(-20 + i * 8, -27);
+            ctx.ellipse(bx + 1, by + 1, 8, 5, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 7, 4.5, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Second layer of sandbags (stacked)
+        for (let i = 0; i < 10; i++) {
+            const angle = (i / 10) * Math.PI * 2 + 0.15;
+            const bx = Math.cos(angle) * 17;
+            const by = Math.sin(angle) * 13 - 6;
+            
+            // Skip the viewing slit area
+            if (angle > 1.0 && angle < 2.1) continue;
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG_DARK;
+            ctx.beginPath();
+            ctx.ellipse(bx + 1, by + 1, 7, 4, angle, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = CONFIG.COLORS.SANDBAG;
+            ctx.beginPath();
+            ctx.ellipse(bx, by, 6, 3.5, angle, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        // Reinforced front viewing slit (facing right/enemy)
+        ctx.fillStyle = CONFIG.COLORS.TRENCH;
+        ctx.fillRect(15, -4, 10, 8);
+        
+        // Metal plate around slit for protection
+        ctx.fillStyle = CONFIG.COLORS.METAL;
+        ctx.fillRect(22, -6, 4, 12);
+        ctx.fillStyle = '#5a5a5a';
+        ctx.fillRect(23, -5, 2, 10);
+        
+        // Wooden support beams
+        ctx.fillStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.fillRect(-12, -10, 4, 3);
+        ctx.fillRect(8, -10, 4, 3);
+        
+        // Corrugated iron roof section (partial cover)
+        ctx.fillStyle = '#4a4a4a';
+        ctx.beginPath();
+        ctx.moveTo(-15, -12);
+        ctx.lineTo(12, -12);
+        ctx.lineTo(14, -8);
+        ctx.lineTo(-13, -8);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Roof ribs
+        ctx.strokeStyle = '#3a3a3a';
+        ctx.lineWidth = 1;
+        for (let x = -12; x <= 10; x += 4) {
+            ctx.beginPath();
+            ctx.moveTo(x, -12);
+            ctx.lineTo(x + 1, -8);
             ctx.stroke();
         }
         
-        // Railing
-        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
-        ctx.lineWidth = 2;
-        ctx.strokeRect(-20, -50, 40, 18);
+        // Periscope/binoculars on stand (if manned)
+        if (!building.isBlueprint && building.assignedUnit) {
+            ctx.fillStyle = '#2a2a2a';
+            ctx.fillRect(18, -8, 3, 6);
+            // Binocular lenses
+            ctx.fillStyle = '#1a3a4a';
+            ctx.beginPath();
+            ctx.arc(19, -9, 2, 0, Math.PI * 2);
+            ctx.arc(21, -9, 2, 0, Math.PI * 2);
+            ctx.fill();
+            // Lens glint
+            ctx.fillStyle = '#4a6a7a';
+            ctx.fillRect(18, -10, 1, 1);
+        }
         
-        // Roof (small cover)
-        ctx.fillStyle = '#4a4030';
+        // Duckboard floor
+        ctx.fillStyle = CONFIG.COLORS.DUCKBOARD;
+        ctx.fillRect(-10, -2, 20, 10);
+        ctx.strokeStyle = CONFIG.COLORS.TREE_TRUNK;
+        ctx.lineWidth = 1;
+        for (let i = -8; i <= 8; i += 4) {
+            ctx.beginPath();
+            ctx.moveTo(i, -2);
+            ctx.lineTo(i, 8);
+            ctx.stroke();
+        }
+        
+        // Camouflage netting draped over edges
+        ctx.strokeStyle = '#4a5a3a';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([3, 3]);
         ctx.beginPath();
-        ctx.moveTo(-25, -50);
-        ctx.lineTo(0, -62);
-        ctx.lineTo(25, -50);
-        ctx.closePath();
-        ctx.fill();
+        ctx.moveTo(-20, -6);
+        ctx.quadraticCurveTo(-25, 2, -18, 10);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(-15, -10);
+        ctx.quadraticCurveTo(-20, -2, -15, 8);
+        ctx.stroke();
+        ctx.setLineDash([]);
         
         // Vision range indicator (subtle)
         if (!building.isBlueprint && building.assignedUnit) {
@@ -2156,20 +2235,20 @@ export class BuildingManager {
             ctx.globalAlpha = 1;
             const barWidth = 35;
             ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(-barWidth/2 - 1, 30, barWidth + 2, 6);
+            ctx.fillRect(-barWidth/2 - 1, 25, barWidth + 2, 6);
             ctx.fillStyle = '#333';
-            ctx.fillRect(-barWidth/2, 31, barWidth, 4);
+            ctx.fillRect(-barWidth/2, 26, barWidth, 4);
             ctx.fillStyle = '#44aa44';
-            ctx.fillRect(-barWidth/2, 31, barWidth * building.buildProgress, 4);
+            ctx.fillRect(-barWidth/2, 26, barWidth * building.buildProgress, 4);
         } else if (!building.assignedUnit && building.needsManning) {
             const pulse = 0.7 + Math.sin(Date.now() / 200) * 0.3;
             ctx.fillStyle = `rgba(170, 68, 68, ${pulse})`;
             ctx.font = 'bold 10px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('NO CREW', 0, 35);
+            ctx.fillText('NO CREW', 0, 32);
         }
         
-        this.renderHealthBar(ctx, building, 35);
+        this.renderHealthBar(ctx, building, 30);
         
         ctx.restore();
     }

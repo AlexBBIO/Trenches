@@ -122,6 +122,10 @@ export class Renderer {
     
     // Check if a position is visible to the player
     isPositionVisible(x, y) {
+        // Scout flyover reveals everything
+        if (this.game.scoutFlyover && this.game.scoutFlyover.active) {
+            return true;
+        }
         const key = this.getFogCellKey(x, y);
         return this.visibleCells.has(key);
     }
@@ -134,6 +138,9 @@ export class Renderer {
     
     // Render the fog of war layer
     renderFogOfWar(ctx) {
+        // During scout flyover, show very light fog over unexplored areas
+        const isScoutActive = this.game.scoutFlyover && this.game.scoutFlyover.active;
+        
         const gridW = Math.ceil(CONFIG.MAP_WIDTH / this.fogGridSize);
         const gridH = Math.ceil(CONFIG.MAP_HEIGHT / this.fogGridSize);
         
@@ -146,6 +153,10 @@ export class Renderer {
                 if (this.visibleCells.has(key)) {
                     // Fully visible - no fog
                     continue;
+                } else if (isScoutActive) {
+                    // Scout flyover - very light fog (can see everything)
+                    ctx.fillStyle = 'rgba(20, 18, 15, 0.15)';
+                    ctx.fillRect(x, y, this.fogGridSize, this.fogGridSize);
                 } else if (this.exploredCells.has(key)) {
                     // Explored but not currently visible - light fog
                     ctx.fillStyle = 'rgba(20, 18, 15, 0.5)';
@@ -759,7 +770,7 @@ export class Renderer {
         this.renderBloodStains(ctx);
         
         // Draw game elements
-        this.game.trenchSystem.render(ctx);
+        this.game.trenchSystem.render(ctx, this);    // Pass renderer for FoW checks
         this.game.buildingManager.render(ctx, this); // Pass renderer for FoW checks
         this.game.unitManager.render(ctx, this);     // Pass renderer for FoW checks
         this.game.trainSystem.render(ctx);
@@ -769,6 +780,11 @@ export class Renderer {
         
         // Draw Fog of War overlay
         this.renderFogOfWar(ctx);
+        
+        // Draw scout plane if active
+        if (this.game.scoutFlyover && this.game.scoutFlyover.active) {
+            this.renderScoutPlane(ctx);
+        }
         
         // Draw selection box if dragging
         if (this.game.input.isDraggingSelection) {
@@ -1298,6 +1314,104 @@ export class Renderer {
                     ctx.stroke();
                 }
                 break;
+        }
+        
+        ctx.restore();
+    }
+    
+    renderScoutPlane(ctx) {
+        const scout = this.game.scoutFlyover;
+        const x = scout.planeX;
+        const y = scout.planeY;
+        
+        ctx.save();
+        ctx.translate(x, y);
+        
+        // Slight banking animation
+        const bankAngle = Math.sin(this.time * 2) * 0.05;
+        ctx.rotate(bankAngle);
+        
+        // Shadow on ground (offset based on height)
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.beginPath();
+        ctx.ellipse(30, 150, 25, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // WWI Biplane style scout aircraft
+        // Fuselage
+        ctx.fillStyle = '#5a5040';
+        ctx.beginPath();
+        ctx.moveTo(-30, 0);
+        ctx.lineTo(40, -3);
+        ctx.lineTo(45, 0);
+        ctx.lineTo(40, 3);
+        ctx.lineTo(-30, 0);
+        ctx.fill();
+        
+        // Fuselage stripes (military markings)
+        ctx.fillStyle = '#4a6040';
+        ctx.fillRect(-20, -2, 15, 4);
+        
+        // Upper wing
+        ctx.fillStyle = '#6a6050';
+        ctx.fillRect(-20, -15, 50, 8);
+        
+        // Lower wing
+        ctx.fillRect(-15, 5, 45, 7);
+        
+        // Wing struts
+        ctx.strokeStyle = '#4a4030';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(-15, -7);
+        ctx.lineTo(-10, 5);
+        ctx.moveTo(20, -7);
+        ctx.lineTo(25, 5);
+        ctx.stroke();
+        
+        // Tail
+        ctx.fillStyle = '#5a5040';
+        ctx.beginPath();
+        ctx.moveTo(-30, 0);
+        ctx.lineTo(-45, -8);
+        ctx.lineTo(-45, 8);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Vertical stabilizer
+        ctx.fillRect(-42, -12, 8, 4);
+        
+        // Propeller blur
+        ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
+        ctx.beginPath();
+        ctx.ellipse(48, 0, 3, 15, 0, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Cockpit
+        ctx.fillStyle = '#3a3020';
+        ctx.fillRect(5, -4, 12, 8);
+        ctx.fillStyle = '#2a4a5a';
+        ctx.fillRect(7, -2, 8, 4);
+        
+        // Roundel (friendly marking)
+        ctx.fillStyle = '#2a4a2a';
+        ctx.beginPath();
+        ctx.arc(0, -11, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#8a3030';
+        ctx.beginPath();
+        ctx.arc(0, -11, 2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Engine exhaust smoke
+        ctx.fillStyle = 'rgba(80, 70, 60, 0.4)';
+        for (let i = 0; i < 5; i++) {
+            const smokeX = -50 - i * 15 - Math.random() * 10;
+            const smokeY = Math.sin(this.time * 5 + i) * 5;
+            const smokeSize = 8 + i * 3;
+            ctx.beginPath();
+            ctx.arc(smokeX, smokeY, smokeSize, 0, Math.PI * 2);
+            ctx.fill();
         }
         
         ctx.restore();

@@ -902,13 +902,30 @@ export class TrenchSystem {
         return false;
     }
     
-    render(ctx) {
+    render(ctx, renderer = null) {
         // Build networks for seamless rendering
         this.buildTrenchNetworks();
         
         // Separate blueprints from completed trenches
         const blueprintTrenches = this.trenches.filter(t => t.isBlueprint);
         const completedTrenches = this.trenches.filter(t => !t.isBlueprint);
+        
+        // Filter out enemy trenches that are not currently visible (fog of war)
+        const visibleCompletedTrenches = completedTrenches.filter(trench => {
+            // Player trenches are always visible
+            if (trench.team === CONFIG.TEAM_PLAYER) return true;
+            // Enemy trenches only visible if currently in vision
+            if (renderer && trench.points.length > 0) {
+                // Check if any point of the trench is visible
+                for (const point of trench.points) {
+                    if (renderer.isPositionVisible(point.x, point.y)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+            return true;
+        });
         
         // LAYER 1: Render all blueprint trenches first (dashed, underneath)
         for (const trench of blueprintTrenches) {
@@ -919,22 +936,22 @@ export class TrenchSystem {
         // This prevents visible seams at segment joints
         
         // LAYER 2: All shadows
-        for (const trench of completedTrenches) {
+        for (const trench of visibleCompletedTrenches) {
             this.renderTrenchShadowLayer(ctx, trench);
         }
         
         // LAYER 3: All parapets (outer sandbag wall)
-        for (const trench of completedTrenches) {
+        for (const trench of visibleCompletedTrenches) {
             this.renderTrenchParapetLayer(ctx, trench);
         }
         
         // LAYER 4: All inner walls
-        for (const trench of completedTrenches) {
+        for (const trench of visibleCompletedTrenches) {
             this.renderTrenchWallLayer(ctx, trench);
         }
         
         // LAYER 5: All floors
-        for (const trench of completedTrenches) {
+        for (const trench of visibleCompletedTrenches) {
             this.renderTrenchFloorLayer(ctx, trench);
         }
         
@@ -942,7 +959,7 @@ export class TrenchSystem {
         this.renderJunctions(ctx);
         
         // LAYER 7: All decorations (sandbags, duckboards)
-        for (const trench of completedTrenches) {
+        for (const trench of visibleCompletedTrenches) {
             this.renderTrenchDecorations(ctx, trench);
         }
     }
